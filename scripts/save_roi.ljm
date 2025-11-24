@@ -1,0 +1,49 @@
+// Get the path of the currently open image
+imagePath = getTitle(); // Get the title of the current image
+imageDir = getDirectory("image"); // Get the directory of the image
+
+// Remove the file extension from the image title to use in folder name
+imageName = "image";
+
+// Get the parent directory of the image and create a new folder name
+parentDir = File.getParent(imageDir);
+newFolder = parentDir + "/" + imageName + "_ROI_spectra/";
+
+// Create the new directory if it doesn't already exist
+File.makeDirectory(newFolder);
+
+// Get the number of ROIs
+n = roiManager("count");
+
+// Get image properties
+Stack.getDimensions(width, height, channels, slices, frames);
+
+// Loop through each ROI
+for (i = 0; i < n; i++) {
+    // Select the ROI
+    roiManager("Select", i);
+    
+    // Get the ROI name
+    roiName = Roi.getName();
+    if (roiName == "") {
+        roiName = "ROI_" + (i + 1);
+    }
+    
+    // Clear results
+    run("Clear Results");
+    
+    // Calculate Z-profile manually
+    for (z = 1; z <= slices; z++) {
+        Stack.setSlice(z);
+        getStatistics(area, mean, min, max, std, histogramArray);
+        sum = mean * area;  // Calculate sum by multiplying mean by area
+        setResult("stack", z-1, z);
+        setResult("counts", z-1, sum);
+        setResult("err", z-1, sqrt(sum));
+    }
+    
+    // Save the results
+    path = newFolder + roiName + ".csv";
+    saveAs("Results", path);
+    
+}
