@@ -3,6 +3,9 @@
 ## Installation
 
 ```bash
+# Extract test data (TIFF file is compressed to save space)
+python scripts/setup_test_data.py
+
 # Install in editable mode for development
 pip install -e ".[dev]"
 

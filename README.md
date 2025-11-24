@@ -31,6 +31,9 @@ This package is ideal for analyzing spectroscopic imaging data, z-stacks, or any
 # Clone or download the repository
 cd save_roi
 
+# Extract test data (TIFF file is compressed to save space)
+python scripts/setup_test_data.py
+
 # Install in editable mode with development dependencies
 pip install -e ".[dev]"
 ```

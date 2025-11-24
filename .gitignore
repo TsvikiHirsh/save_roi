@@ -45,6 +45,9 @@ htmlcov/
 *_ROI_Spectra/
 *.csv
 
+# Keep compressed test data but not uncompressed
+notebooks/image.tiff
+
 # OS
 .DS_Store
 Thumbs.db
