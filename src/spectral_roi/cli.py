@@ -35,6 +35,9 @@ Examples:
   # Extract spectra for every 4th pixel
   save-roi --tiff image.tiff --mode pixel --stride 4
 
+  # Use all available cores for parallel processing
+  save-roi --tiff image.tiff --mode grid --grid-size 4 --jobs -1
+
   # Specify custom output directory
   save-roi --tiff image.tiff --roi roi.zip --output ./results
         """
@@ -90,6 +93,13 @@ Examples:
         type=int,
         default=1,
         help='Stride for pixel mode (e.g., 4 to sample every 4th pixel). Default: 1'
+    )
+
+    parser.add_argument(
+        '-j', '--jobs',
+        type=int,
+        default=10,
+        help='Number of parallel jobs for grid/pixel modes. Use -1 for all available cores. Default: 10'
     )
 
     parser.add_argument(
@@ -158,7 +168,8 @@ Examples:
                 tiff_path,
                 output_dir=output_dir,
                 save_csv=save_csv,
-                stride=args.stride
+                stride=args.stride,
+                n_jobs=args.jobs
             )
             print(f"\nProcessed {len(results)} pixels")
 
@@ -168,7 +179,8 @@ Examples:
                 tiff_path,
                 grid_size=args.grid_size,
                 output_dir=output_dir,
-                save_csv=save_csv
+                save_csv=save_csv,
+                n_jobs=args.jobs
             )
             print(f"\nProcessed {len(results)} grid cells")
 

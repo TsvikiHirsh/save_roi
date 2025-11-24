@@ -17,6 +17,7 @@ This package is ideal for analyzing spectroscopic imaging data, z-stacks, or any
 
 - **Multiple input formats**: Works with `.roi` and `.zip` ROI files from ImageJ
 - **Flexible analysis modes**: ROI-based, full image, grid patterns, or pixel-by-pixel
+- **Parallel processing**: Fast grid/pixel analysis using multiple CPU cores (default: 10 cores)
 - **CSV output**: Generates CSV files with consistent structure (stack, counts, err)
 - **Command-line interface**: Easy batch processing with CLI
 - **Python API**: Use directly in Jupyter notebooks or Python scripts
@@ -51,11 +52,11 @@ save-roi --tiff image.tiff --roi roi_file.zip
 # Extract spectrum for entire image (no ROI)
 save-roi --tiff image.tiff
 
-# Extract spectra for 4x4 pixel grid
+# Extract spectra for 4x4 pixel grid (uses 10 cores by default)
 save-roi --tiff image.tiff --mode grid --grid-size 4
 
-# Extract spectra for every 4th pixel
-save-roi --tiff image.tiff --mode pixel --stride 4
+# Extract spectra for every 4th pixel using all available cores
+save-roi --tiff image.tiff --mode pixel --stride 4 --jobs -1
 ```
 
 ### Python API Usage

@@ -8,6 +8,8 @@ import tifffile
 from pathlib import Path
 from typing import Union, List, Optional, Tuple
 import warnings
+from multiprocessing import Pool, cpu_count
+from functools import partial
 
 
 def load_tiff_stack(tiff_path: Union[str, Path]) -> np.ndarray:
@@ -142,6 +144,25 @@ def get_roi_mask(roi_object, image_shape: Tuple[int, int]) -> np.ndarray:
             mask[:h, :w] = roi_mask[:h, :w]
 
     return mask
+
+
+def _process_single_mask(args):
+    """
+    Helper function for parallel processing of masks.
+
+    Parameters
+    ----------
+    args : tuple
+        (mask_name, mask, stack) tuple
+
+    Returns
+    -------
+    tuple
+        (mask_name, DataFrame) tuple
+    """
+    mask_name, mask, stack = args
+    df = calculate_spectrum(stack, mask)
+    return mask_name, df
 
 
 def calculate_spectrum(stack: np.ndarray, mask: np.ndarray) -> pd.DataFrame:
@@ -295,7 +316,8 @@ def extract_pixel_spectra(
     tiff_path: Union[str, Path],
     output_dir: Optional[Union[str, Path]] = None,
     save_csv: bool = True,
-    stride: int = 1
+    stride: int = 1,
+    n_jobs: int = 10
 ) -> dict:
     """
     Extract spectral data for individual pixels or pixel groups on a grid.
@@ -311,6 +333,8 @@ def extract_pixel_spectra(
     stride : int, default=1
         Stride for grid sampling. stride=1 means every pixel, stride=4 means
         every 4th pixel in each direction.
+    n_jobs : int, default=10
+        Number of parallel jobs. Use -1 for all available cores.
 
     Returns
     -------
@@ -330,25 +354,37 @@ def extract_pixel_spectra(
         output_dir.mkdir(parents=True, exist_ok=True)
 
     height, width = stack.shape[1:]
-    results = {}
 
-    print(f"Extracting pixel spectra with stride={stride}...")
+    # Determine number of jobs
+    if n_jobs == -1:
+        n_jobs = cpu_count()
+    else:
+        n_jobs = min(n_jobs, cpu_count())
 
+    print(f"Extracting pixel spectra with stride={stride} using {n_jobs} cores...")
+
+    # Prepare all masks and their names
+    tasks = []
     for y in range(0, height, stride):
         for x in range(0, width, stride):
             # Create single-pixel mask
             mask = np.zeros((height, width), dtype=bool)
             mask[y, x] = True
-
-            # Calculate spectrum
-            df = calculate_spectrum(stack, mask)
-
             pixel_name = f"pixel_x{x}_y{y}"
-            results[pixel_name] = df
+            tasks.append((pixel_name, mask, stack))
 
-            if save_csv:
-                csv_path = output_dir / f"{pixel_name}.csv"
-                df.to_csv(csv_path, index=False)
+    # Process in parallel
+    with Pool(processes=n_jobs) as pool:
+        results_list = pool.map(_process_single_mask, tasks)
+
+    # Convert to dictionary
+    results = dict(results_list)
+
+    # Save CSVs if requested
+    if save_csv:
+        for pixel_name, df in results.items():
+            csv_path = output_dir / f"{pixel_name}.csv"
+            df.to_csv(csv_path, index=False)
 
     print(f"Saved {len(results)} pixel spectra to {output_dir}")
 
@@ -359,7 +395,8 @@ def extract_grid_spectra(
     tiff_path: Union[str, Path],
     grid_size: int = 4,
     output_dir: Optional[Union[str, Path]] = None,
-    save_csv: bool = True
+    save_csv: bool = True,
+    n_jobs: int = 10
 ) -> dict:
     """
     Extract spectral data for grid-based pixel groups (e.g., 4x4 blocks).
@@ -374,6 +411,8 @@ def extract_grid_spectra(
         Directory to save CSV files
     save_csv : bool, default=True
         Whether to save results to CSV files
+    n_jobs : int, default=10
+        Number of parallel jobs. Use -1 for all available cores.
 
     Returns
     -------
@@ -393,10 +432,17 @@ def extract_grid_spectra(
         output_dir.mkdir(parents=True, exist_ok=True)
 
     height, width = stack.shape[1:]
-    results = {}
 
-    print(f"Extracting grid spectra with {grid_size}x{grid_size} blocks...")
+    # Determine number of jobs
+    if n_jobs == -1:
+        n_jobs = cpu_count()
+    else:
+        n_jobs = min(n_jobs, cpu_count())
 
+    print(f"Extracting grid spectra with {grid_size}x{grid_size} blocks using {n_jobs} cores...")
+
+    # Prepare all masks and their names
+    tasks = []
     for y in range(0, height, grid_size):
         for x in range(0, width, grid_size):
             # Create grid block mask
@@ -405,15 +451,21 @@ def extract_grid_spectra(
             x_end = min(x + grid_size, width)
             mask[y:y_end, x:x_end] = True
 
-            # Calculate spectrum
-            df = calculate_spectrum(stack, mask)
-
             grid_name = f"grid_{grid_size}x{grid_size}_x{x}_y{y}"
-            results[grid_name] = df
+            tasks.append((grid_name, mask, stack))
 
-            if save_csv:
-                csv_path = output_dir / f"{grid_name}.csv"
-                df.to_csv(csv_path, index=False)
+    # Process in parallel
+    with Pool(processes=n_jobs) as pool:
+        results_list = pool.map(_process_single_mask, tasks)
+
+    # Convert to dictionary
+    results = dict(results_list)
+
+    # Save CSVs if requested
+    if save_csv:
+        for grid_name, df in results.items():
+            csv_path = output_dir / f"{grid_name}.csv"
+            df.to_csv(csv_path, index=False)
 
     print(f"Saved {len(results)} grid spectra to {output_dir}")
 

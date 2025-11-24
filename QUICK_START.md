@@ -21,11 +21,11 @@ save-roi --tiff notebooks/image.tiff --roi notebooks/ROI2.zip
 # Extract spectrum for entire image (no ROI)
 save-roi --tiff notebooks/image.tiff --mode full
 
-# Extract spectra for 4x4 pixel grid
+# Extract spectra for 4x4 pixel grid (uses 10 cores by default)
 save-roi --tiff notebooks/image.tiff --mode grid --grid-size 4
 
-# Extract spectra for every 4th pixel
-save-roi --tiff notebooks/image.tiff --mode pixel --stride 4
+# Extract spectra for every 4th pixel using all available cores
+save-roi --tiff notebooks/image.tiff --mode pixel --stride 4 --jobs -1
 
 # Specify custom output directory
 save-roi --tiff notebooks/image.tiff --roi notebooks/ROI2.zip --output ./my_results
@@ -131,15 +131,23 @@ save-roi --tiff spectrum_stack.tiff --roi regions.zip
 ```
 
 ### Grid-Based Analysis
-Systematic spatial analysis with grid patterns:
+Systematic spatial analysis with grid patterns (parallel processing):
 ```bash
+# Use 10 cores (default)
 save-roi --tiff data.tiff --mode grid --grid-size 8
+
+# Use all available cores
+save-roi --tiff data.tiff --mode grid --grid-size 8 --jobs -1
 ```
 
 ### Pixel-Level Analysis
-Detailed pixel-by-pixel analysis (use stride to reduce data):
+Detailed pixel-by-pixel analysis (parallel processing, use stride to reduce data):
 ```bash
+# Use 10 cores (default)
 save-roi --tiff data.tiff --mode pixel --stride 4
+
+# Use all available cores
+save-roi --tiff data.tiff --mode pixel --stride 4 --jobs -1
 ```
 
 ## Need Help?
