@@ -8,7 +8,7 @@ version = "0.1.0"
 description = "Extract spectral data from TIFF stacks using ImageJ ROIs or automated grid-based analysis"
 readme = "README.md"
 authors = [
-    {name = "Your Name", email = "your.email@example.com"}
+    {name = "Tsviki Y. Hirsh", email = "tsviki@soreq.gov.il"}
 ]
 license = {text = "MIT"}
 classifiers = [
@@ -42,9 +42,9 @@ dev = [
 save-roi = "spectral_roi.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/yourusername/save_roi"
-Documentation = "https://github.com/yourusername/save_roi#readme"
-Repository = "https://github.com/yourusername/save_roi"
+Homepage = "https://github.com/TsvikiHirsh/save_roi"
+Documentation = "https://github.com/TsvikiHirsh/save_roi#readme"
+Repository = "https://github.com/TsvikiHirsh/save_roi"
 
 [tool.setuptools.packages.find]
 where = ["src"]

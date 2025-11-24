@@ -351,7 +351,7 @@ If you use this package in your research, please cite:
 
 ```
 Save ROI: A Python package for extracting spectral data from TIFF stacks
-https://github.com/yourusername/save_roi
+https://github.com/TsvikiHirshame/save_roi
 ```
 
 ## Acknowledgments
