@@ -17,3 +17,17 @@ __all__ = [
     "extract_pixel_spectra",
     "extract_grid_spectra",
 ]
+
+# Optional interactive tools (require additional dependencies)
+try:
+    from .interactive import (
+        InteractiveROISelector,
+        launch_interactive_tool,
+    )
+    __all__.extend([
+        "InteractiveROISelector",
+        "launch_interactive_tool",
+    ])
+except ImportError:
+    # Interactive tools not available (missing dependencies)
+    pass

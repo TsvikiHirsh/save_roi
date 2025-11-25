@@ -20,6 +20,12 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
+  # Launch interactive ROI selection tool
+  save-roi --tiff image.tiff --interactive
+
+  # Launch interactive tool with specific stack range
+  save-roi --tiff image.tiff --interactive --stack-range 0:10
+
   # Extract spectra using ImageJ ROI file
   save-roi --tiff image.tiff --roi roi_file.zip
 
@@ -109,6 +115,19 @@ Examples:
     )
 
     parser.add_argument(
+        '--interactive',
+        action='store_true',
+        help='Launch interactive ROI selection tool (requires Jupyter or IPython)'
+    )
+
+    parser.add_argument(
+        '--stack-range',
+        type=str,
+        default=None,
+        help='Stack range to sum for interactive mode, format: "start:end" (e.g., "0:10")'
+    )
+
+    parser.add_argument(
         '--version',
         action='version',
         version='%(prog)s 0.1.0'
@@ -121,6 +140,37 @@ Examples:
     if not tiff_path.exists():
         print(f"Error: TIFF file not found: {tiff_path}", file=sys.stderr)
         sys.exit(1)
+
+    # Handle interactive mode
+    if args.interactive:
+        try:
+            from .interactive import launch_interactive_tool
+
+            # Parse stack range if provided
+            stack_range = None
+            if args.stack_range:
+                try:
+                    start, end = map(int, args.stack_range.split(':'))
+                    stack_range = (start, end)
+                except ValueError:
+                    print(f"Error: Invalid stack range format. Use 'start:end' (e.g., '0:10')", file=sys.stderr)
+                    sys.exit(1)
+
+            print("Launching interactive ROI selection tool...")
+            print("Use the drawing tools in the figure to create ROIs")
+            print("Tip: Install with 'pip install -e .[interactive]' if dependencies are missing")
+
+            selector = launch_interactive_tool(tiff_path, stack_range=stack_range, mode='jupyter')
+            return  # Interactive mode doesn't exit automatically
+
+        except ImportError as e:
+            print(f"Error: Interactive mode requires additional dependencies.", file=sys.stderr)
+            print(f"Install with: pip install save-roi[interactive]", file=sys.stderr)
+            print(f"Details: {e}", file=sys.stderr)
+            sys.exit(1)
+        except Exception as e:
+            print(f"Error launching interactive tool: {e}", file=sys.stderr)
+            sys.exit(1)
 
     if args.roi:
         roi_path = Path(args.roi)

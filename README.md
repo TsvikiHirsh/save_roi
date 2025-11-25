@@ -6,6 +6,7 @@ Extract spectral data from TIFF stacks using ImageJ ROIs or automated grid-based
 
 **Save ROI** is a Python package that provides flexible tools for extracting spectral profiles from TIFF image stacks. It supports multiple analysis modes:
 
+- **Interactive ROI Selection** ⭐ NEW: ImageJ-like ROI Manager with visual interface for Jupyter notebooks
 - **ImageJ ROI files**: Use existing ROI definitions from ImageJ/Fiji
 - **Full image analysis**: Analyze the entire image without ROI constraints
 - **Grid-based analysis**: Systematic extraction using pixel grid patterns (e.g., 4x4 blocks)
@@ -15,6 +16,7 @@ This package is ideal for analyzing spectroscopic imaging data, z-stacks, or any
 
 ## Features
 
+- **Interactive ROI Selection Tool** ⭐ NEW: ImageJ-like ROI Manager in Jupyter notebooks with Plotly
 - **Multiple input formats**: Works with `.roi` and `.zip` ROI files from ImageJ
 - **Flexible analysis modes**: ROI-based, full image, grid patterns, or pixel-by-pixel
 - **Parallel processing**: Fast grid/pixel analysis using multiple CPU cores (default: 10 cores)
@@ -36,12 +38,19 @@ python scripts/setup_test_data.py
 
 # Install in editable mode with development dependencies
 pip install -e ".[dev]"
+
+# For interactive ROI selection tool (optional)
+pip install -e ".[interactive]"
 ```
 
 ### From PyPI (when published)
 
 ```bash
+# Basic installation
 pip install save-roi
+
+# With interactive ROI selection tool
+pip install save-roi[interactive]
 ```
 
 ## Quick Start
@@ -87,12 +96,102 @@ for roi_name, df in results.items():
 ./scripts/save_roi.sh --tiff image.tiff --roi roi_file.zip
 ```
 
+## Interactive ROI Selection Tool
+
+**Save ROI** now includes an interactive ROI selection tool similar to ImageJ's ROI Manager! This tool provides a visual interface for drawing, editing, and managing ROIs directly in Jupyter notebooks or from the command line.
+
+### Features
+
+- 📊 **Interactive Plotly visualization** of summed TIFF stacks
+- ✏️ **Draw ROIs** using rectangle, circle/ellipse, and polygon tools
+- 📝 **Name and rename ROIs** with a user-friendly interface
+- 💾 **Save/Load ROI files** in ImageJ-compatible format (.zip)
+- 🔬 **Extract spectra** directly from the interface
+- 🎯 **Create grid ROIs** automatically
+- 📋 **ROI list management** with easy selection and deletion
+
+### Command Line Usage
+
+```bash
+# Launch interactive tool
+save-roi --tiff image.tiff --interactive
+
+# Launch with specific stack range (slices 0-10)
+save-roi --tiff image.tiff --interactive --stack-range 0:10
+```
+
+### Jupyter Notebook Usage
+
+```python
+from spectral_roi import launch_interactive_tool
+
+# Launch the interactive ROI selector
+selector = launch_interactive_tool("image.tiff")
+
+# Or with a specific stack range
+selector = launch_interactive_tool("image.tiff", stack_range=(0, 10))
+```
+
+### Using the Interactive Tool
+
+1. **Draw ROIs**: Use the Plotly toolbar to draw shapes:
+   - Click the rectangle tool to draw rectangular ROIs
+   - Click the circle tool to draw elliptical ROIs
+   - Click the polygon tool to draw freehand/polygon ROIs
+
+2. **Add ROI**: After drawing a shape, enter a name and click "Add ROI from Drawing"
+
+3. **Manage ROIs**:
+   - View all ROIs in the ROI list
+   - Rename ROIs using the Old Name/New Name fields
+   - Delete ROIs by entering the name and clicking "Delete ROI"
+
+4. **Create Grids**: Enter a grid size and click "Create Grid" to automatically generate grid-based ROIs
+
+5. **Save ROIs**: Enter a file path (optional) and click "Save ROIs" to save to ImageJ-compatible .zip format
+
+6. **Load ROIs**: Enter the path to an existing ROI .zip file and click "Load ROIs"
+
+7. **Extract Spectra**: Click "Extract Spectra" to run the spectral extraction on all defined ROIs
+
+### Python API for Interactive Tool
+
+```python
+from spectral_roi import InteractiveROISelector
+
+# Create selector instance
+selector = InteractiveROISelector("image.tiff")
+
+# Display in Jupyter notebook
+selector.show_jupyter()
+
+# Or programmatically add ROIs
+shape_data = {
+    'type': 'rect',
+    'x0': 10, 'y0': 10,
+    'x1': 50, 'y1': 50
+}
+selector.add_roi_from_shape(shape_data, name="my_roi")
+
+# Create grid ROIs
+selector.create_grid_rois(grid_size=4)
+
+# Save ROIs
+selector.save_rois("output_rois.zip")
+
+# Load ROIs
+selector.load_rois("existing_rois.zip")
+
+# Extract spectra
+results = selector.extract_spectra(output_dir="./results")
+```
+
 ## Command Line Options
 
 ```
 usage: save-roi [-h] -t TIFF [-r ROI] [-o OUTPUT] [-m {roi,full,pixel,grid}]
                     [--grid-size GRID_SIZE] [--stride STRIDE] [--no-save]
-                    [--version]
+                    [--interactive] [--stack-range STACK_RANGE] [--version]
 
 Options:
   -h, --help            Show help message
@@ -105,6 +204,9 @@ Options:
                         Grid block size for grid mode (default: 4)
   --stride STRIDE       Stride for pixel mode (default: 1)
   --no-save             Do not save CSV files
+  --interactive         Launch interactive ROI selection tool
+  --stack-range STACK_RANGE
+                        Stack range for interactive mode (format: "start:end")
   --version             Show version number
 ```
 
@@ -289,6 +391,7 @@ save_roi/
 │   └── spectral_roi/
 │       ├── __init__.py
 │       ├── core.py          # Core extraction functions
+│       ├── interactive.py   # Interactive ROI selection tool
 │       └── cli.py           # Command-line interface
 ├── notebooks/
 │   ├── example_usage.ipynb  # Example notebook
@@ -298,7 +401,8 @@ save_roi/
 │   ├── save_roi.sh         # Bash wrapper script
 │   └── save_roi.ljm        # Original ImageJ macro
 ├── tests/
-│   └── test_core.py        # Unit tests
+│   ├── test_core.py        # Core functionality tests
+│   └── test_interactive.py # Interactive tool tests
 ├── pyproject.toml          # Package configuration
 ├── setup.py
 └── README.md
@@ -306,13 +410,23 @@ save_roi/
 
 ## Dependencies
 
+### Core Dependencies
 - Python >= 3.8
 - numpy >= 1.20.0
 - tifffile >= 2021.0.0
 - roifile >= 2021.0.0
 - pandas >= 1.3.0
 
-Optional (for development):
+### Optional Dependencies
+
+For interactive ROI selection tool:
+- plotly >= 5.0.0
+- dash >= 2.0.0
+- pillow >= 9.0.0
+- ipywidgets >= 8.0.0
+- kaleido >= 0.2.0
+
+For development:
 - pytest >= 7.0.0
 - jupyter >= 1.0.0
 - matplotlib >= 3.5.0
@@ -332,6 +446,7 @@ This package provides the same core functionality as the original ImageJ macro (
 | Feature | ImageJ Macro | Spectral ROI |
 |---------|--------------|--------------|
 | ImageJ ROI support | ✓ | ✓ |
+| Interactive ROI selection | ✓ | ✓ |
 | Command-line interface | ✗ | ✓ |
 | Python API | ✗ | ✓ |
 | Jupyter notebook support | ✗ | ✓ |
@@ -340,6 +455,7 @@ This package provides the same core functionality as the original ImageJ macro (
 | Pixel-by-pixel analysis | ✗ | ✓ |
 | Custom output directory | ✗ | ✓ |
 | Pip installable | ✗ | ✓ |
+| Parallel processing | ✗ | ✓ |
 
 ## Contributing
 
