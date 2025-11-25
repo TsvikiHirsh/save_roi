@@ -21,10 +21,10 @@ def main():
         epilog="""
 Examples:
   # Launch interactive ROI selection tool
-  save-roi --tiff image.tiff --interactive
+  save-roi -t image.tiff -i
 
   # Launch interactive tool with specific stack range
-  save-roi --tiff image.tiff --interactive --stack-range 0:10
+  save-roi -t image.tiff -i --stack-range 0:10
 
   # Extract spectra using ImageJ ROI file
   save-roi --tiff image.tiff --roi roi_file.zip
@@ -115,7 +115,7 @@ Examples:
     )
 
     parser.add_argument(
-        '--interactive',
+        '-i', '--interactive',
         action='store_true',
         help='Launch interactive ROI selection tool (requires Jupyter or IPython)'
     )

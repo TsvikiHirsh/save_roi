@@ -58,6 +58,9 @@ pip install save-roi[interactive]
 ### Command Line Usage
 
 ```bash
+# Launch interactive ROI selector
+save-roi -t image.tiff -i
+
 # Extract spectra using ImageJ ROI file
 save-roi --tiff image.tiff --roi roi_file.zip
 
@@ -74,9 +77,14 @@ save-roi --tiff image.tiff --mode pixel --stride 4 --jobs -1
 ### Python API Usage
 
 ```python
+# Interactive ROI selection
+from spectral_roi import interactive
+
+selector = interactive.launch_interactive_tool("image.tiff")
+
+# Or extract spectra using ImageJ ROI file
 from spectral_roi import extract_roi_spectra
 
-# Extract spectra using ImageJ ROI file
 results = extract_roi_spectra(
     tiff_path="image.tiff",
     roi_path="roi_file.zip",
@@ -110,26 +118,73 @@ for roi_name, df in results.items():
 - 🎯 **Create grid ROIs** automatically
 - 📋 **ROI list management** with easy selection and deletion
 
+### Interactive Tool Interface
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                    ROI Selection - image.tiff                       │
+├─────────────────────────────────────────────────────────────────────┤
+│  🖱️  Drawing Tools: □ Rectangle  ○ Circle  ✏️ Polygon  🗑️ Erase    │
+├──────────────────────────────────┬──────────────────────────────────┤
+│                                  │  ROI Manager                     │
+│                                  │  ────────────────                │
+│      [Interactive Plotly         │  ROIs:                           │
+│       Heatmap Display]           │  ┌──────────────────────┐       │
+│                                  │  │ ROI_1                │       │
+│       • Zoom and Pan             │  │ ROI_2                │       │
+│       • Draw ROIs                │  │ test_region          │       │
+│       • Hover for values         │  │ background           │       │
+│                                  │  └──────────────────────┘       │
+│                                  │                                  │
+│                                  │  Add ROI:                        │
+│                                  │  Name: [____________]            │
+│                                  │  Shape: [Rectangle ▼]            │
+│                                  │  [Add ROI from Drawing]          │
+│                                  │                                  │
+│                                  │  Manage:                         │
+│                                  │  Old: [____________]             │
+│                                  │  New: [____________]             │
+│                                  │  [Rename] [Delete]               │
+│                                  │                                  │
+│                                  │  Grid: [4] [Create Grid]         │
+│                                  │                                  │
+│                                  │  File Operations:                │
+│                                  │  [Save ROIs] [Load ROIs]         │
+│                                  │  [Extract Spectra]               │
+└──────────────────────────────────┴──────────────────────────────────┘
+```
+
 ### Command Line Usage
 
 ```bash
-# Launch interactive tool
-save-roi --tiff image.tiff --interactive
+# Launch interactive tool (short form)
+save-roi -t image.tiff -i
 
 # Launch with specific stack range (slices 0-10)
-save-roi --tiff image.tiff --interactive --stack-range 0:10
+save-roi -t image.tiff -i --stack-range 0:10
+
+# Long form also works
+save-roi --tiff image.tiff --interactive
 ```
 
 ### Jupyter Notebook Usage
 
 ```python
-from spectral_roi import launch_interactive_tool
+# Simple import
+from spectral_roi import interactive
 
 # Launch the interactive ROI selector
-selector = launch_interactive_tool("image.tiff")
+selector = interactive.launch_interactive_tool("image.tiff")
 
 # Or with a specific stack range
-selector = launch_interactive_tool("image.tiff", stack_range=(0, 10))
+selector = interactive.launch_interactive_tool("image.tiff", stack_range=(0, 10))
+```
+
+**Alternative import style:**
+```python
+from spectral_roi import launch_interactive_tool
+
+selector = launch_interactive_tool("image.tiff")
 ```
 
 ### Using the Interactive Tool
@@ -157,10 +212,11 @@ selector = launch_interactive_tool("image.tiff", stack_range=(0, 10))
 ### Python API for Interactive Tool
 
 ```python
-from spectral_roi import InteractiveROISelector
+# Recommended: Simple import
+from spectral_roi import interactive
 
 # Create selector instance
-selector = InteractiveROISelector("image.tiff")
+selector = interactive.InteractiveROISelector("image.tiff")
 
 # Display in Jupyter notebook
 selector.show_jupyter()
@@ -184,6 +240,14 @@ selector.load_rois("existing_rois.zip")
 
 # Extract spectra
 results = selector.extract_spectra(output_dir="./results")
+```
+
+**Alternative import:**
+```python
+from spectral_roi import InteractiveROISelector
+
+selector = InteractiveROISelector("image.tiff")
+selector.show_jupyter()
 ```
 
 ## Command Line Options

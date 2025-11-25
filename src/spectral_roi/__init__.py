@@ -20,14 +20,16 @@ __all__ = [
 
 # Optional interactive tools (require additional dependencies)
 try:
+    from . import interactive
     from .interactive import (
         InteractiveROISelector,
         launch_interactive_tool,
     )
     __all__.extend([
+        "interactive",
         "InteractiveROISelector",
         "launch_interactive_tool",
     ])
 except ImportError:
     # Interactive tools not available (missing dependencies)
-    pass
+    interactive = None
