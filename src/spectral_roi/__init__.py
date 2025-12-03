@@ -9,6 +9,9 @@ from .core import (
     extract_full_image_spectrum,
     extract_pixel_spectra,
     extract_grid_spectra,
+    apply_tilt_correction,
+    load_tiff_stack,
+    load_imagej_rois,
 )
 
 __all__ = [
@@ -16,20 +19,7 @@ __all__ = [
     "extract_full_image_spectrum",
     "extract_pixel_spectra",
     "extract_grid_spectra",
+    "apply_tilt_correction",
+    "load_tiff_stack",
+    "load_imagej_rois",
 ]
-
-# Optional interactive tools (require additional dependencies)
-try:
-    from . import interactive
-    from .interactive import (
-        InteractiveROISelector,
-        launch_interactive_tool,
-    )
-    __all__.extend([
-        "interactive",
-        "InteractiveROISelector",
-        "launch_interactive_tool",
-    ])
-except ImportError:
-    # Interactive tools not available (missing dependencies)
-    interactive = None

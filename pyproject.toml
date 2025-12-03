@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "save-roi"
 version = "0.1.0"
-description = "Extract spectral data from TIFF stacks using ImageJ ROIs or automated grid-based analysis"
+description = "Extract spectral data from TIFF stacks using ImageJ ROIs with optional tilt correction"
 readme = "README.md"
 authors = [
     {name = "Tsviki Y. Hirsh", email = "tsviki@soreq.gov.il"}
@@ -28,20 +28,13 @@ dependencies = [
     "tifffile>=2021.0.0",
     "roifile>=2021.0.0",
     "pandas>=1.3.0",
+    "scipy>=1.7.0",
 ]
 
 [project.optional-dependencies]
-interactive = [
-    "plotly>=5.0.0",
-    "dash>=2.0.0",
-    "pillow>=9.0.0",
-    "ipywidgets>=8.0.0",
-    "kaleido>=0.2.0",
-]
 dev = [
     "pytest>=7.0.0",
     "pytest-cov>=3.0.0",
-    "jupyter>=1.0.0",
     "matplotlib>=3.5.0",
 ]
 

@@ -10,7 +10,10 @@ from .core import (
     extract_full_image_spectrum,
     extract_pixel_spectra,
     extract_grid_spectra,
+    apply_tilt_correction,
+    load_tiff_stack,
 )
+import tifffile
 
 
 def main():
@@ -20,14 +23,11 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Launch interactive ROI selection tool
-  save-roi -t image.tiff -i
-
-  # Launch interactive tool with specific stack range
-  save-roi -t image.tiff -i --stack-range 0:10
-
   # Extract spectra using ImageJ ROI file
   save-roi --tiff image.tiff --roi roi_file.zip
+
+  # Extract spectra with tilt correction
+  save-roi --tiff image.tiff --roi roi_file.zip --tilt symmetry_line
 
   # Extract spectrum for entire image (no ROI)
   save-roi --tiff image.tiff
@@ -46,6 +46,9 @@ Examples:
 
   # Specify custom output directory
   save-roi --tiff image.tiff --roi roi.zip --output ./results
+
+  # Apply tilt correction and extract grid spectra
+  save-roi --tiff image.tiff --roi roi.zip --tilt symmetry --mode grid
         """
     )
 
@@ -115,16 +118,10 @@ Examples:
     )
 
     parser.add_argument(
-        '-i', '--interactive',
-        action='store_true',
-        help='Launch interactive ROI selection tool (requires Jupyter or IPython)'
-    )
-
-    parser.add_argument(
-        '--stack-range',
+        '--tilt',
         type=str,
         default=None,
-        help='Stack range to sum for interactive mode, format: "start:end" (e.g., "0:10")'
+        help='Name of ROI to use for tilt correction. The ROI should define a symmetry line that will be straightened to vertical and centered.'
     )
 
     parser.add_argument(
@@ -141,36 +138,10 @@ Examples:
         print(f"Error: TIFF file not found: {tiff_path}", file=sys.stderr)
         sys.exit(1)
 
-    # Handle interactive mode
-    if args.interactive:
-        try:
-            from .interactive import launch_interactive_tool
-
-            # Parse stack range if provided
-            stack_range = None
-            if args.stack_range:
-                try:
-                    start, end = map(int, args.stack_range.split(':'))
-                    stack_range = (start, end)
-                except ValueError:
-                    print(f"Error: Invalid stack range format. Use 'start:end' (e.g., '0:10')", file=sys.stderr)
-                    sys.exit(1)
-
-            print("Launching interactive ROI selection tool...")
-            print("Use the drawing tools in the figure to create ROIs")
-            print("Tip: Install with 'pip install -e .[interactive]' if dependencies are missing")
-
-            selector = launch_interactive_tool(tiff_path, stack_range=stack_range, mode='jupyter')
-            return  # Interactive mode doesn't exit automatically
-
-        except ImportError as e:
-            print(f"Error: Interactive mode requires additional dependencies.", file=sys.stderr)
-            print(f"Install with: pip install save-roi[interactive]", file=sys.stderr)
-            print(f"Details: {e}", file=sys.stderr)
-            sys.exit(1)
-        except Exception as e:
-            print(f"Error launching interactive tool: {e}", file=sys.stderr)
-            sys.exit(1)
+    # Validate tilt correction requirements
+    if args.tilt and not args.roi:
+        print("Error: --tilt requires --roi to be specified", file=sys.stderr)
+        sys.exit(1)
 
     if args.roi:
         roi_path = Path(args.roi)
@@ -199,7 +170,8 @@ Examples:
                 tiff_path,
                 roi_path=roi_path,
                 output_dir=output_dir,
-                save_csv=save_csv
+                save_csv=save_csv,
+                tilt_roi_name=args.tilt
             )
             print(f"\nProcessed {len(results)} ROI(s)")
 
@@ -219,7 +191,9 @@ Examples:
                 output_dir=output_dir,
                 save_csv=save_csv,
                 stride=args.stride,
-                n_jobs=args.jobs
+                n_jobs=args.jobs,
+                tilt_roi_name=args.tilt,
+                roi_path=roi_path if args.tilt else None
             )
             print(f"\nProcessed {len(results)} pixels")
 
@@ -230,7 +204,9 @@ Examples:
                 grid_size=args.grid_size,
                 output_dir=output_dir,
                 save_csv=save_csv,
-                n_jobs=args.jobs
+                n_jobs=args.jobs,
+                tilt_roi_name=args.tilt,
+                roi_path=roi_path if args.tilt else None
             )
             print(f"\nProcessed {len(results)} grid cells")
 

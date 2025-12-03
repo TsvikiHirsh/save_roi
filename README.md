@@ -1,13 +1,13 @@
 # Save ROI
 
-Extract spectral data from TIFF stacks using ImageJ ROIs or automated grid-based analysis.
+Extract spectral data from TIFF stacks using ImageJ ROIs with optional tilt correction.
 
 ## Overview
 
-**Save ROI** is a Python package that provides flexible tools for extracting spectral profiles from TIFF image stacks. It supports multiple analysis modes:
+**Save ROI** is a Python package that provides tools for extracting spectral profiles from TIFF image stacks. It supports multiple analysis modes:
 
-- **Interactive ROI Selection** ⭐ NEW: ImageJ-like ROI Manager with visual interface for Jupyter notebooks
-- **ImageJ ROI files**: Use existing ROI definitions from ImageJ/Fiji
+- **ImageJ ROI files**: Use ROI definitions from ImageJ/Fiji
+- **Tilt correction**: Automatically straighten and center images based on a symmetry line ROI
 - **Full image analysis**: Analyze the entire image without ROI constraints
 - **Grid-based analysis**: Systematic extraction using pixel grid patterns (e.g., 4x4 blocks)
 - **Pixel-by-pixel analysis**: Extract spectra for individual pixels with optional stride
@@ -16,13 +16,13 @@ This package is ideal for analyzing spectroscopic imaging data, z-stacks, or any
 
 ## Features
 
-- **Interactive ROI Selection Tool** ⭐ NEW: ImageJ-like ROI Manager in Jupyter notebooks with Plotly
+- **Tilt Correction**: Straighten and center images using a symmetry line ROI
 - **Multiple input formats**: Works with `.roi` and `.zip` ROI files from ImageJ
 - **Flexible analysis modes**: ROI-based, full image, grid patterns, or pixel-by-pixel
 - **Parallel processing**: Fast grid/pixel analysis using multiple CPU cores (default: 10 cores)
 - **CSV output**: Generates CSV files with consistent structure (stack, counts, err)
 - **Command-line interface**: Easy batch processing with CLI
-- **Python API**: Use directly in Jupyter notebooks or Python scripts
+- **Python API**: Use directly in Python scripts or Jupyter notebooks
 - **Pip installable**: Standard Python package installation
 
 ## Installation
@@ -38,19 +38,12 @@ python scripts/setup_test_data.py
 
 # Install in editable mode with development dependencies
 pip install -e ".[dev]"
-
-# For interactive ROI selection tool (optional)
-pip install -e ".[interactive]"
 ```
 
 ### From PyPI (when published)
 
 ```bash
-# Basic installation
 pip install save-roi
-
-# With interactive ROI selection tool
-pip install save-roi[interactive]
 ```
 
 ## Quick Start
@@ -58,11 +51,11 @@ pip install save-roi[interactive]
 ### Command Line Usage
 
 ```bash
-# Launch interactive ROI selector
-save-roi -t image.tiff -i
-
 # Extract spectra using ImageJ ROI file
 save-roi --tiff image.tiff --roi roi_file.zip
+
+# Extract spectra with tilt correction
+save-roi --tiff image.tiff --roi roi_file.zip --tilt symmetry_line
 
 # Extract spectrum for entire image (no ROI)
 save-roi --tiff image.tiff
@@ -77,17 +70,20 @@ save-roi --tiff image.tiff --mode pixel --stride 4 --jobs -1
 ### Python API Usage
 
 ```python
-# Interactive ROI selection
-from spectral_roi import interactive
-
-selector = interactive.launch_interactive_tool("image.tiff")
-
-# Or extract spectra using ImageJ ROI file
 from spectral_roi import extract_roi_spectra
 
+# Extract spectra using ImageJ ROI file
 results = extract_roi_spectra(
     tiff_path="image.tiff",
     roi_path="roi_file.zip",
+    save_csv=True
+)
+
+# Extract spectra with tilt correction
+results = extract_roi_spectra(
+    tiff_path="image.tiff",
+    roi_path="roi_file.zip",
+    tilt_roi_name="symmetry_line",
     save_csv=True
 )
 
@@ -104,158 +100,71 @@ for roi_name, df in results.items():
 ./scripts/save_roi.sh --tiff image.tiff --roi roi_file.zip
 ```
 
-## Interactive ROI Selection Tool
+## Tilt Correction
 
-**Save ROI** now includes an interactive ROI selection tool similar to ImageJ's ROI Manager! This tool provides a visual interface for drawing, editing, and managing ROIs directly in Jupyter notebooks or from the command line.
+Tilt correction allows you to automatically straighten and center images based on a symmetry line defined by an ROI. This is useful for correcting sample tilt in microscopy or spectroscopy data.
 
-### Features
+### How it works
 
-- 📊 **Interactive Plotly visualization** of summed TIFF stacks
-- ✏️ **Draw ROIs** using rectangle, circle/ellipse, and polygon tools
-- 📝 **Name and rename ROIs** with a user-friendly interface
-- 💾 **Save/Load ROI files** in ImageJ-compatible format (.zip)
-- 🔬 **Extract spectra** directly from the interface
-- 🎯 **Create grid ROIs** automatically
-- 📋 **ROI list management** with easy selection and deletion
-
-### Interactive Tool Interface
-
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│                    ROI Selection - image.tiff                       │
-├─────────────────────────────────────────────────────────────────────┤
-│  🖱️  Drawing Tools: □ Rectangle  ○ Circle  ✏️ Polygon  🗑️ Erase    │
-├──────────────────────────────────┬──────────────────────────────────┤
-│                                  │  ROI Manager                     │
-│                                  │  ────────────────                │
-│      [Interactive Plotly         │  ROIs:                           │
-│       Heatmap Display]           │  ┌──────────────────────┐       │
-│                                  │  │ ROI_1                │       │
-│       • Zoom and Pan             │  │ ROI_2                │       │
-│       • Draw ROIs                │  │ test_region          │       │
-│       • Hover for values         │  │ background           │       │
-│                                  │  └──────────────────────┘       │
-│                                  │                                  │
-│                                  │  Add ROI:                        │
-│                                  │  Name: [____________]            │
-│                                  │  Shape: [Rectangle ▼]            │
-│                                  │  [Add ROI from Drawing]          │
-│                                  │                                  │
-│                                  │  Manage:                         │
-│                                  │  Old: [____________]             │
-│                                  │  New: [____________]             │
-│                                  │  [Rename] [Delete]               │
-│                                  │                                  │
-│                                  │  Grid: [4] [Create Grid]         │
-│                                  │                                  │
-│                                  │  File Operations:                │
-│                                  │  [Save ROIs] [Load ROIs]         │
-│                                  │  [Extract Spectra]               │
-└──────────────────────────────────┴──────────────────────────────────┘
-```
+1. Create a line ROI in ImageJ that follows a symmetry axis of your sample
+2. Save the ROI with a descriptive name (e.g., "symmetry_line")
+3. Use the `--tilt` argument to apply correction before extracting spectra
 
 ### Command Line Usage
 
 ```bash
-# Launch interactive tool (short form)
-save-roi -t image.tiff -i
+# Apply tilt correction using an ROI named "symmetry_line"
+save-roi --tiff image.tiff --roi roi_file.zip --tilt symmetry_line
 
-# Launch with specific stack range (slices 0-10)
-save-roi -t image.tiff -i --stack-range 0:10
-
-# Long form also works
-save-roi --tiff image.tiff --interactive
+# Combine tilt correction with grid analysis
+save-roi --tiff image.tiff --roi roi_file.zip --tilt symmetry_line --mode grid
 ```
 
-### Jupyter Notebook Usage
+### Python API Usage
 
 ```python
-# Simple import
-from spectral_roi import interactive
+from spectral_roi import apply_tilt_correction, load_tiff_stack
+import tifffile
 
-# Launch the interactive ROI selector
-selector = interactive.launch_interactive_tool("image.tiff")
+# Load stack
+stack = load_tiff_stack("image.tiff")
 
-# Or with a specific stack range
-selector = interactive.launch_interactive_tool("image.tiff", stack_range=(0, 10))
+# Apply tilt correction
+corrected_stack, angle, center = apply_tilt_correction(
+    stack,
+    roi_path="roi_file.zip",
+    tilt_roi_name="symmetry_line"
+)
+
+# Save corrected stack
+tifffile.imwrite("corrected.tiff", corrected_stack)
+
+# Or extract spectra directly with tilt correction
+from spectral_roi import extract_roi_spectra
+
+results = extract_roi_spectra(
+    tiff_path="image.tiff",
+    roi_path="roi_file.zip",
+    tilt_roi_name="symmetry_line"
+)
 ```
 
-**Alternative import style:**
-```python
-from spectral_roi import launch_interactive_tool
+### ROI Preparation in ImageJ
 
-selector = launch_interactive_tool("image.tiff")
-```
-
-### Using the Interactive Tool
-
-1. **Draw ROIs**: Use the Plotly toolbar to draw shapes:
-   - Click the rectangle tool to draw rectangular ROIs
-   - Click the circle tool to draw elliptical ROIs
-   - Click the polygon tool to draw freehand/polygon ROIs
-
-2. **Add ROI**: After drawing a shape, enter a name and click "Add ROI from Drawing"
-
-3. **Manage ROIs**:
-   - View all ROIs in the ROI list
-   - Rename ROIs using the Old Name/New Name fields
-   - Delete ROIs by entering the name and clicking "Delete ROI"
-
-4. **Create Grids**: Enter a grid size and click "Create Grid" to automatically generate grid-based ROIs
-
-5. **Save ROIs**: Enter a file path (optional) and click "Save ROIs" to save to ImageJ-compatible .zip format
-
-6. **Load ROIs**: Enter the path to an existing ROI .zip file and click "Load ROIs"
-
-7. **Extract Spectra**: Click "Extract Spectra" to run the spectral extraction on all defined ROIs
-
-### Python API for Interactive Tool
-
-```python
-# Recommended: Simple import
-from spectral_roi import interactive
-
-# Create selector instance
-selector = interactive.InteractiveROISelector("image.tiff")
-
-# Display in Jupyter notebook
-selector.show_jupyter()
-
-# Or programmatically add ROIs
-shape_data = {
-    'type': 'rect',
-    'x0': 10, 'y0': 10,
-    'x1': 50, 'y1': 50
-}
-selector.add_roi_from_shape(shape_data, name="my_roi")
-
-# Create grid ROIs
-selector.create_grid_rois(grid_size=4)
-
-# Save ROIs
-selector.save_rois("output_rois.zip")
-
-# Load ROIs
-selector.load_rois("existing_rois.zip")
-
-# Extract spectra
-results = selector.extract_spectra(output_dir="./results")
-```
-
-**Alternative import:**
-```python
-from spectral_roi import InteractiveROISelector
-
-selector = InteractiveROISelector("image.tiff")
-selector.show_jupyter()
-```
+1. Open your TIFF stack in ImageJ
+2. Use the **Line** tool to draw a line along a symmetry axis
+   - For best results, draw the line through features that should be vertical
+   - The line can be straight or follow multiple points
+3. Add to ROI Manager (Ctrl+T or Cmd+T)
+4. Rename the ROI to something meaningful (e.g., "symmetry_line")
+5. Save all ROIs: **ROI Manager → More → Save**
 
 ## Command Line Options
 
 ```
 usage: save-roi [-h] -t TIFF [-r ROI] [-o OUTPUT] [-m {roi,full,pixel,grid}]
-                    [--grid-size GRID_SIZE] [--stride STRIDE] [--no-save]
-                    [--interactive] [--stack-range STACK_RANGE] [--version]
+                [--grid-size GRID_SIZE] [--stride STRIDE] [-j JOBS]
+                [--no-save] [--tilt TILT] [--version]
 
 Options:
   -h, --help            Show help message
@@ -267,10 +176,9 @@ Options:
   --grid-size GRID_SIZE
                         Grid block size for grid mode (default: 4)
   --stride STRIDE       Stride for pixel mode (default: 1)
+  -j, --jobs JOBS       Number of parallel jobs (default: 10, use -1 for all cores)
   --no-save             Do not save CSV files
-  --interactive         Launch interactive ROI selection tool
-  --stack-range STACK_RANGE
-                        Stack range for interactive mode (format: "start:end")
+  --tilt TILT           Name of ROI to use for tilt correction
   --version             Show version number
 ```
 
@@ -281,7 +189,7 @@ Options:
 Use ImageJ ROI files to define regions of interest.
 
 ```bash
-spectral-roi --tiff image.tiff --roi roi_file.zip
+save-roi --tiff image.tiff --roi roi_file.zip
 ```
 
 ```python
@@ -298,7 +206,7 @@ results = extract_roi_spectra(
 Analyze the entire image without ROI constraints.
 
 ```bash
-spectral-roi --tiff image.tiff --mode full
+save-roi --tiff image.tiff --mode full
 ```
 
 ```python
@@ -313,10 +221,10 @@ Extract spectra for grid-based pixel blocks.
 
 ```bash
 # 4x4 pixel blocks
-spectral-roi --tiff image.tiff --mode grid --grid-size 4
+save-roi --tiff image.tiff --mode grid --grid-size 4
 
 # 8x8 pixel blocks
-spectral-roi --tiff image.tiff --mode grid --grid-size 8
+save-roi --tiff image.tiff --mode grid --grid-size 8
 ```
 
 ```python
@@ -334,10 +242,10 @@ Extract spectra for individual pixels with optional stride.
 
 ```bash
 # Every pixel (warning: creates many files!)
-spectral-roi --tiff image.tiff --mode pixel
+save-roi --tiff image.tiff --mode pixel
 
 # Every 4th pixel in each direction
-spectral-roi --tiff image.tiff --mode pixel --stride 4
+save-roi --tiff image.tiff --mode pixel --stride 4
 ```
 
 ```python
@@ -374,14 +282,14 @@ By default, CSV files are saved to a subfolder next to the input TIFF:
 You can specify a custom output directory with the `--output` option:
 
 ```bash
-spectral-roi --tiff image.tiff --roi roi.zip --output ./my_results
+save-roi --tiff image.tiff --roi roi.zip --output ./my_results
 ```
 
 ## Python API Reference
 
 ### Core Functions
 
-#### `extract_roi_spectra(tiff_path, roi_path=None, output_dir=None, save_csv=True)`
+#### `extract_roi_spectra(tiff_path, roi_path=None, output_dir=None, save_csv=True, tilt_roi_name=None)`
 
 Extract spectral data for ROIs from a TIFF stack.
 
@@ -390,8 +298,21 @@ Extract spectral data for ROIs from a TIFF stack.
 - `roi_path`: Path to ImageJ ROI file (`.roi` or `.zip`)
 - `output_dir`: Output directory for CSV files
 - `save_csv`: Whether to save CSV files (default: True)
+- `tilt_roi_name`: Name of ROI for tilt correction (optional)
 
 **Returns:** Dictionary mapping ROI names to pandas DataFrames
+
+#### `apply_tilt_correction(stack, roi_path, tilt_roi_name, threshold=0.4)`
+
+Apply tilt correction to a TIFF stack based on a symmetry line ROI.
+
+**Parameters:**
+- `stack`: 3D numpy array (slices, height, width)
+- `roi_path`: Path to ImageJ ROI file
+- `tilt_roi_name`: Name of the ROI to use for tilt correction
+- `threshold`: Threshold value for edge detection (default: 0.4)
+
+**Returns:** Tuple of (corrected_stack, rotation_angle, center_coords)
 
 #### `extract_full_image_spectrum(tiff_path, output_dir=None, save_csv=True)`
 
@@ -404,7 +325,7 @@ Extract spectral data for the entire image.
 
 **Returns:** pandas DataFrame with spectral data
 
-#### `extract_grid_spectra(tiff_path, grid_size=4, output_dir=None, save_csv=True)`
+#### `extract_grid_spectra(tiff_path, grid_size=4, output_dir=None, save_csv=True, n_jobs=10, tilt_roi_name=None, roi_path=None)`
 
 Extract spectral data using grid-based pixel blocks.
 
@@ -413,10 +334,13 @@ Extract spectral data using grid-based pixel blocks.
 - `grid_size`: Size of grid blocks (e.g., 4 for 4x4 pixels)
 - `output_dir`: Output directory for CSV files
 - `save_csv`: Whether to save CSV files (default: True)
+- `n_jobs`: Number of parallel jobs (default: 10)
+- `tilt_roi_name`: Name of ROI for tilt correction (optional)
+- `roi_path`: Path to ROI file (required if using tilt correction)
 
 **Returns:** Dictionary mapping grid cell names to pandas DataFrames
 
-#### `extract_pixel_spectra(tiff_path, output_dir=None, save_csv=True, stride=1)`
+#### `extract_pixel_spectra(tiff_path, output_dir=None, save_csv=True, stride=1, n_jobs=10, tilt_roi_name=None, roi_path=None)`
 
 Extract spectral data for individual pixels.
 
@@ -425,16 +349,11 @@ Extract spectral data for individual pixels.
 - `output_dir`: Output directory for CSV files
 - `save_csv`: Whether to save CSV files (default: True)
 - `stride`: Sampling stride (e.g., 4 for every 4th pixel)
+- `n_jobs`: Number of parallel jobs (default: 10)
+- `tilt_roi_name`: Name of ROI for tilt correction (optional)
+- `roi_path`: Path to ROI file (required if using tilt correction)
 
 **Returns:** Dictionary mapping pixel coordinates to pandas DataFrames
-
-## Examples
-
-See the [example notebook](notebooks/example_usage.ipynb) for detailed examples including:
-- Loading and plotting spectral data
-- Comparing multiple ROIs
-- Custom analysis workflows
-- Working with results in memory
 
 ## Use Cases
 
@@ -445,6 +364,7 @@ See the [example notebook](notebooks/example_usage.ipynb) for detailed examples 
 - **Z-stack analysis**: Extract depth profiles from confocal microscopy
 - **Fluorescence spectroscopy**: Measure emission spectra from fluorescent samples
 - **Raman imaging**: Extract Raman spectra from imaging datasets
+- **Sample alignment**: Correct for sample tilt using symmetry-based correction
 - **Any multi-slice TIFF analysis**: General-purpose spectral extraction
 
 ## Project Structure
@@ -454,19 +374,16 @@ save_roi/
 ├── src/
 │   └── spectral_roi/
 │       ├── __init__.py
-│       ├── core.py          # Core extraction functions
-│       ├── interactive.py   # Interactive ROI selection tool
+│       ├── core.py          # Core extraction and tilt correction functions
 │       └── cli.py           # Command-line interface
 ├── notebooks/
-│   ├── example_usage.ipynb  # Example notebook
 │   ├── image.tiff          # Test TIFF stack
 │   └── ROI2.zip            # Test ROI file
 ├── scripts/
 │   ├── save_roi.sh         # Bash wrapper script
 │   └── save_roi.ljm        # Original ImageJ macro
 ├── tests/
-│   ├── test_core.py        # Core functionality tests
-│   └── test_interactive.py # Interactive tool tests
+│   └── test_core.py        # Core functionality tests
 ├── pyproject.toml          # Package configuration
 ├── setup.py
 └── README.md
@@ -477,22 +394,15 @@ save_roi/
 ### Core Dependencies
 - Python >= 3.8
 - numpy >= 1.20.0
+- scipy >= 1.7.0
 - tifffile >= 2021.0.0
 - roifile >= 2021.0.0
 - pandas >= 1.3.0
 
 ### Optional Dependencies
 
-For interactive ROI selection tool:
-- plotly >= 5.0.0
-- dash >= 2.0.0
-- pillow >= 9.0.0
-- ipywidgets >= 8.0.0
-- kaleido >= 0.2.0
-
 For development:
 - pytest >= 7.0.0
-- jupyter >= 1.0.0
 - matplotlib >= 3.5.0
 
 ## Testing
@@ -510,10 +420,9 @@ This package provides the same core functionality as the original ImageJ macro (
 | Feature | ImageJ Macro | Spectral ROI |
 |---------|--------------|--------------|
 | ImageJ ROI support | ✓ | ✓ |
-| Interactive ROI selection | ✓ | ✓ |
+| Tilt correction | ✗ | ✓ |
 | Command-line interface | ✗ | ✓ |
 | Python API | ✗ | ✓ |
-| Jupyter notebook support | ✗ | ✓ |
 | Full image analysis | ✗ | ✓ |
 | Grid-based analysis | ✗ | ✓ |
 | Pixel-by-pixel analysis | ✗ | ✓ |
@@ -535,12 +444,12 @@ If you use this package in your research, please cite:
 
 ```
 Save ROI: A Python package for extracting spectral data from TIFF stacks
-https://github.com/TsvikiHirshame/save_roi
+https://github.com/TsvikiHirsh/save_roi
 ```
 
 ## Acknowledgments
 
-This package was developed as a Python adaptation of an ImageJ macro for spectral ROI analysis. It uses the excellent `tifffile` and `roifile` libraries for file I/O.
+This package was developed as a Python adaptation of an ImageJ macro for spectral ROI analysis. It uses the excellent `tifffile` and `roifile` libraries for file I/O, and `scipy` for image processing.
 
 ## Support
 

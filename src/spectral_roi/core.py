@@ -10,6 +10,9 @@ from typing import Union, List, Optional, Tuple
 import warnings
 from multiprocessing import Pool, cpu_count
 from functools import partial
+from scipy.ndimage import rotate
+from scipy.optimize import fsolve
+from scipy.interpolate import UnivariateSpline
 
 
 def load_tiff_stack(tiff_path: Union[str, Path]) -> np.ndarray:
@@ -208,11 +211,153 @@ def calculate_spectrum(stack: np.ndarray, mask: np.ndarray) -> pd.DataFrame:
     return pd.DataFrame(results)
 
 
+def apply_tilt_correction(
+    stack: np.ndarray,
+    roi_path: Union[str, Path],
+    tilt_roi_name: str,
+    threshold: float = 0.4
+) -> Tuple[np.ndarray, float, Tuple[float, float]]:
+    """
+    Apply tilt correction to a TIFF stack based on a symmetry line ROI.
+
+    This function finds a symmetry line from the specified ROI, calculates
+    its angle from vertical, rotates the entire stack to make it vertical,
+    and centers the image.
+
+    Parameters
+    ----------
+    stack : np.ndarray
+        3D array (slices, height, width)
+    roi_path : str or Path
+        Path to ImageJ ROI file (.roi or .zip)
+    tilt_roi_name : str
+        Name of the ROI to use for tilt correction
+    threshold : float, default=0.4
+        Threshold value for finding symmetry line edges
+
+    Returns
+    -------
+    corrected_stack : np.ndarray
+        Tilt-corrected and centered stack
+    angle : float
+        Rotation angle applied (in degrees)
+    center : tuple
+        (x, y) coordinates of the symmetry line center
+    """
+    # Load the specified ROI
+    rois = load_imagej_rois(roi_path)
+
+    # Find the tilt ROI
+    tilt_roi = None
+    for roi_info in rois:
+        if roi_info['name'] == tilt_roi_name:
+            tilt_roi = roi_info['roi_object']
+            break
+
+    if tilt_roi is None:
+        raise ValueError(f"ROI '{tilt_roi_name}' not found in {roi_path}")
+
+    # Get ROI coordinates
+    if not hasattr(tilt_roi, 'coordinates'):
+        raise ValueError(f"ROI '{tilt_roi_name}' does not have coordinates")
+
+    coords = tilt_roi.coordinates()
+    if coords is None or len(coords) < 2:
+        raise ValueError(f"ROI '{tilt_roi_name}' must have at least 2 points")
+
+    # Calculate angle from vertical
+    # For a line ROI, use first and last points
+    # Or for more complex ROIs, fit a line through all points
+    if len(coords) == 2:
+        # Simple line ROI
+        x1, y1 = coords[0]
+        x2, y2 = coords[1]
+    else:
+        # Fit line through multiple points using least squares
+        x_coords = coords[:, 0]
+        y_coords = coords[:, 1]
+
+        # Fit line: y = mx + b
+        # Using polyfit for linear regression
+        if np.std(x_coords) > np.std(y_coords):
+            # More variation in x, fit y = mx + b
+            m, b = np.polyfit(x_coords, y_coords, 1)
+            x1, y1 = x_coords[0], m * x_coords[0] + b
+            x2, y2 = x_coords[-1], m * x_coords[-1] + b
+        else:
+            # More variation in y, fit x = my + b
+            m, b = np.polyfit(y_coords, x_coords, 1)
+            y1, y2 = y_coords[0], y_coords[-1]
+            x1, x2 = m * y1 + b, m * y2 + b
+
+    # Calculate angle from vertical (vertical = 0 degrees)
+    # Vector from point 1 to point 2
+    dx = x2 - x1
+    dy = y2 - y1
+
+    # Angle from vertical (0 degrees is straight down)
+    # We want to rotate so the line becomes vertical
+    angle_from_horizontal = np.degrees(np.arctan2(dy, dx))
+    angle_from_vertical = angle_from_horizontal - 90.0
+
+    # Rotation angle needed to make line vertical
+    rotation_angle = -angle_from_vertical
+
+    print(f"Symmetry line angle from vertical: {angle_from_vertical:.2f} degrees")
+    print(f"Applying rotation: {rotation_angle:.2f} degrees")
+
+    # Calculate center of symmetry line
+    center_x = (x1 + x2) / 2
+    center_y = (y1 + y2) / 2
+
+    # Rotate the entire stack
+    corrected_stack = np.zeros_like(stack)
+    for i in range(stack.shape[0]):
+        corrected_stack[i] = rotate(
+            stack[i],
+            rotation_angle,
+            reshape=False,
+            order=3,  # Bicubic interpolation
+            mode='constant',
+            cval=0
+        )
+
+    # Calculate new center position after rotation
+    height, width = stack.shape[1:]
+    old_center = np.array([width / 2, height / 2])
+
+    # Rotation matrix
+    theta = np.radians(rotation_angle)
+    rot_matrix = np.array([
+        [np.cos(theta), -np.sin(theta)],
+        [np.sin(theta), np.cos(theta)]
+    ])
+
+    # Calculate where the symmetry line center moved to
+    relative_pos = np.array([center_x, center_y]) - old_center
+    new_relative_pos = rot_matrix @ relative_pos
+    new_center = old_center + new_relative_pos
+
+    # Calculate shift to center the symmetry line
+    shift_x = int(width / 2 - new_center[0])
+    shift_y = int(height / 2 - new_center[1])
+
+    print(f"Centering: shifting by ({shift_x}, {shift_y}) pixels")
+
+    # Apply centering shift
+    centered_stack = np.zeros_like(corrected_stack)
+    for i in range(corrected_stack.shape[0]):
+        centered_stack[i] = np.roll(corrected_stack[i], (shift_y, shift_x), axis=(0, 1))
+
+    return centered_stack, rotation_angle, (center_x, center_y)
+
+
 def extract_roi_spectra(
     tiff_path: Union[str, Path],
     roi_path: Optional[Union[str, Path]] = None,
     output_dir: Optional[Union[str, Path]] = None,
-    save_csv: bool = True
+    save_csv: bool = True,
+    tilt_roi_name: Optional[str] = None
 ) -> dict:
     """
     Extract spectral data for ROIs from a TIFF stack.
@@ -228,6 +373,9 @@ def extract_roi_spectra(
         next to the TIFF file.
     save_csv : bool, default=True
         Whether to save results to CSV files
+    tilt_roi_name : str, optional
+        Name of ROI to use for tilt correction. If provided, applies tilt
+        correction before extracting spectra.
 
     Returns
     -------
@@ -236,6 +384,14 @@ def extract_roi_spectra(
     """
     tiff_path = Path(tiff_path)
     stack = load_tiff_stack(tiff_path)
+
+    # Apply tilt correction if requested
+    if tilt_roi_name is not None:
+        if roi_path is None:
+            raise ValueError("roi_path must be provided when using tilt correction")
+        print(f"\nApplying tilt correction using ROI: {tilt_roi_name}")
+        stack, angle, center = apply_tilt_correction(stack, roi_path, tilt_roi_name)
+        print(f"Tilt correction complete: rotated {angle:.2f} degrees, centered at {center}\n")
 
     # Setup output directory
     if output_dir is None:
@@ -317,7 +473,9 @@ def extract_pixel_spectra(
     output_dir: Optional[Union[str, Path]] = None,
     save_csv: bool = True,
     stride: int = 1,
-    n_jobs: int = 10
+    n_jobs: int = 10,
+    tilt_roi_name: Optional[str] = None,
+    roi_path: Optional[Union[str, Path]] = None
 ) -> dict:
     """
     Extract spectral data for individual pixels or pixel groups on a grid.
@@ -335,6 +493,10 @@ def extract_pixel_spectra(
         every 4th pixel in each direction.
     n_jobs : int, default=10
         Number of parallel jobs. Use -1 for all available cores.
+    tilt_roi_name : str, optional
+        Name of ROI to use for tilt correction.
+    roi_path : str or Path, optional
+        Path to ROI file (required if tilt_roi_name is provided).
 
     Returns
     -------
@@ -343,6 +505,14 @@ def extract_pixel_spectra(
     """
     tiff_path = Path(tiff_path)
     stack = load_tiff_stack(tiff_path)
+
+    # Apply tilt correction if requested
+    if tilt_roi_name is not None:
+        if roi_path is None:
+            raise ValueError("roi_path must be provided when using tilt correction")
+        print(f"\nApplying tilt correction using ROI: {tilt_roi_name}")
+        stack, angle, center = apply_tilt_correction(stack, roi_path, tilt_roi_name)
+        print(f"Tilt correction complete: rotated {angle:.2f} degrees, centered at {center}\n")
 
     # Setup output directory
     if output_dir is None:
@@ -396,7 +566,9 @@ def extract_grid_spectra(
     grid_size: int = 4,
     output_dir: Optional[Union[str, Path]] = None,
     save_csv: bool = True,
-    n_jobs: int = 10
+    n_jobs: int = 10,
+    tilt_roi_name: Optional[str] = None,
+    roi_path: Optional[Union[str, Path]] = None
 ) -> dict:
     """
     Extract spectral data for grid-based pixel groups (e.g., 4x4 blocks).
@@ -413,6 +585,10 @@ def extract_grid_spectra(
         Whether to save results to CSV files
     n_jobs : int, default=10
         Number of parallel jobs. Use -1 for all available cores.
+    tilt_roi_name : str, optional
+        Name of ROI to use for tilt correction.
+    roi_path : str or Path, optional
+        Path to ROI file (required if tilt_roi_name is provided).
 
     Returns
     -------
@@ -421,6 +597,14 @@ def extract_grid_spectra(
     """
     tiff_path = Path(tiff_path)
     stack = load_tiff_stack(tiff_path)
+
+    # Apply tilt correction if requested
+    if tilt_roi_name is not None:
+        if roi_path is None:
+            raise ValueError("roi_path must be provided when using tilt correction")
+        print(f"\nApplying tilt correction using ROI: {tilt_roi_name}")
+        stack, angle, center = apply_tilt_correction(stack, roi_path, tilt_roi_name)
+        print(f"Tilt correction complete: rotated {angle:.2f} degrees, centered at {center}\n")
 
     # Setup output directory
     if output_dir is None:
