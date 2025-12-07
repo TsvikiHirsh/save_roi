@@ -51,6 +51,9 @@ pip install save-roi
 ### Command Line Usage
 
 ```bash
+# Folder mode: Auto-discover structure (archive/final/*.tiff, *.zip ROI file)
+save-roi archive
+
 # Extract spectra using ImageJ ROI file
 save-roi --tiff image.tiff --roi roi_file.zip
 
@@ -66,6 +69,35 @@ save-roi --tiff image.tiff --mode grid --grid-size 4
 # Extract spectra for every 4th pixel using all available cores
 save-roi --tiff image.tiff --mode pixel --stride 4 --jobs -1
 ```
+
+### Folder Structure Mode
+
+For batch processing with a standard folder structure, you can simply specify the archive folder name:
+
+```bash
+save-roi archive
+```
+
+**Expected folder structure:**
+```
+./                      # Current working directory
+├── archive/            # Archive folder (name specified)
+│   ├── final/          # TIFF stacks location
+│   │   ├── image1.tiff
+│   │   ├── image2.tiff
+│   │   └── ...
+│   └── ROI_Spectra/    # Output directory (created automatically)
+│       ├── ROI_1.csv
+│       ├── ROI_2.csv
+│       └── ...
+└── rois.zip            # ROI file (auto-discovered in current directory)
+```
+
+**What happens:**
+- Searches for `*.zip` files in the current directory and validates them as ROI files
+- Processes all `*.tiff` files in `archive/final/`
+- Saves CSV outputs to `archive/ROI_Spectra/`
+- Works with all modes (roi, grid, pixel) and tilt correction
 
 ### Python API Usage
 
@@ -162,13 +194,17 @@ results = extract_roi_spectra(
 ## Command Line Options
 
 ```
-usage: save-roi [-h] -t TIFF [-r ROI] [-o OUTPUT] [-m {roi,full,pixel,grid}]
-                [--grid-size GRID_SIZE] [--stride STRIDE] [-j JOBS]
-                [--no-save] [--tilt TILT] [--version]
+usage: save-roi [folder] [-h] [-t TIFF] [-r ROI] [-o OUTPUT]
+                [-m {roi,full,pixel,grid}] [--grid-size GRID_SIZE]
+                [--stride STRIDE] [-j JOBS] [--no-save] [--tilt TILT]
+                [--version]
+
+Positional Arguments:
+  folder                Archive folder name (enables auto-discovery mode)
 
 Options:
   -h, --help            Show help message
-  -t, --tiff TIFF       Path to TIFF stack file (required)
+  -t, --tiff TIFF       Path to TIFF stack file (not needed in folder mode)
   -r, --roi ROI         Path to ImageJ ROI file (.roi or .zip)
   -o, --output OUTPUT   Output directory for CSV files
   -m, --mode {roi,full,pixel,grid}
