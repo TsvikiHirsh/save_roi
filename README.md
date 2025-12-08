@@ -1,4 +1,5 @@
 # Save ROI
+![logo](notebooks/save-roi_logo.png)
 
 Extract spectral data from TIFF stacks using ImageJ ROIs with optional tilt correction.
 
