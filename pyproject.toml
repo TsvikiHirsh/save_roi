@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "save-roi"
-version = "0.1.0"
+version = "0.2.0"
 description = "Extract spectral data from TIFF stacks using ImageJ ROIs with optional tilt correction"
 readme = "README.md"
 authors = [
@@ -29,6 +29,7 @@ dependencies = [
     "roifile>=2021.0.0",
     "pandas>=1.3.0",
     "scipy>=1.7.0",
+    "tqdm>=4.60.0",
 ]
 
 [project.optional-dependencies]

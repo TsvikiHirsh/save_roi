@@ -12,6 +12,9 @@ from .core import (
     apply_tilt_correction,
     load_tiff_stack,
     load_imagej_rois,
+    discover_tiff_files,
+    discover_roi_files,
+    merge_roi_files,
 )
 
 __all__ = [
@@ -22,4 +25,7 @@ __all__ = [
     "apply_tilt_correction",
     "load_tiff_stack",
     "load_imagej_rois",
+    "discover_tiff_files",
+    "discover_roi_files",
+    "merge_roi_files",
 ]

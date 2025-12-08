@@ -12,8 +12,12 @@ from .core import (
     extract_grid_spectra,
     apply_tilt_correction,
     load_tiff_stack,
+    discover_tiff_files,
+    discover_roi_files,
+    merge_roi_files,
 )
 import tifffile
+from tqdm import tqdm
 
 
 def main():
@@ -23,6 +27,9 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
+  # Quick workflow: discover TIFFs in data/final/, ROIs in PWD, output to data/
+  save-roi data
+
   # Extract spectra using ImageJ ROI file
   save-roi --tiff image.tiff --roi roi_file.zip
 
@@ -52,12 +59,20 @@ Examples:
         """
     )
 
-    # Required arguments
+    # Positional argument for quick workflow
+    parser.add_argument(
+        'data_dir',
+        nargs='?',
+        default=None,
+        help='Data directory for quick workflow. Searches for TIFFs in DATA_DIR/final/, ROIs in PWD, outputs to DATA_DIR/'
+    )
+
+    # Input arguments
     parser.add_argument(
         '-t', '--tiff',
         type=str,
-        required=True,
-        help='Path to TIFF stack file'
+        default=None,
+        help='Path to TIFF stack file or directory. If directory, discovers all TIFF files. Default: current directory'
     )
 
     # Optional arguments
@@ -65,7 +80,7 @@ Examples:
         '-r', '--roi',
         type=str,
         default=None,
-        help='Path to ImageJ ROI file (.roi or .zip). If not provided, analyzes full image or uses specified mode.'
+        help='Path to ImageJ ROI file (.roi or .zip), or directory to discover ROI files. If not provided, auto-discovers ROI files in the same directory as TIFF files. Multiple ROI files will be merged automatically.'
     )
 
     parser.add_argument(
@@ -132,88 +147,294 @@ Examples:
 
     args = parser.parse_args()
 
-    # Validate inputs
-    tiff_path = Path(args.tiff)
-    if not tiff_path.exists():
-        print(f"Error: TIFF file not found: {tiff_path}", file=sys.stderr)
-        sys.exit(1)
+    # Check if using quick workflow (positional data_dir argument)
+    use_quick_workflow = args.data_dir is not None and args.tiff is None
+    custom_output_base = None
 
-    # Validate tilt correction requirements
-    if args.tilt and not args.roi:
-        print("Error: --tilt requires --roi to be specified", file=sys.stderr)
-        sys.exit(1)
+    if use_quick_workflow:
+        # Quick workflow: data_dir/final/ contains TIFFs, PWD contains ROIs, output to data_dir/
+        data_dir = Path(args.data_dir)
+        if not data_dir.exists():
+            print(f"Error: Data directory not found: {data_dir}", file=sys.stderr)
+            sys.exit(1)
+        if not data_dir.is_dir():
+            print(f"Error: Data path is not a directory: {data_dir}", file=sys.stderr)
+            sys.exit(1)
 
-    if args.roi:
-        roi_path = Path(args.roi)
-        if not roi_path.exists():
-            print(f"Error: ROI file not found: {roi_path}", file=sys.stderr)
+        print(f"Using quick workflow with data directory: {data_dir}")
+
+        # Look for TIFFs in data_dir/final/
+        tiff_search_dir = data_dir / "final"
+        if not tiff_search_dir.exists():
+            print(f"Error: Expected subdirectory not found: {tiff_search_dir}", file=sys.stderr)
+            print(f"Quick workflow expects TIFFs in {data_dir}/final/", file=sys.stderr)
+            sys.exit(1)
+
+        tiff_input = tiff_search_dir
+        custom_output_base = data_dir  # Output goes to data_dir, not data_dir/final/
+
+        # ROI search defaults to PWD for quick workflow
+        if args.roi is None:
+            roi_search_dir = Path.cwd()
+            print(f"Searching for ROI files in: {roi_search_dir}")
+        else:
+            roi_search_dir = Path(args.roi)
+
+    elif args.data_dir is not None and args.tiff is not None:
+        print("Error: Cannot specify both positional data_dir and --tiff argument", file=sys.stderr)
+        sys.exit(1)
+    else:
+        # Standard workflow
+        if args.tiff is None:
+            tiff_input = Path.cwd()
+            print(f"No TIFF path specified, using current directory: {tiff_input}")
+        else:
+            tiff_input = Path(args.tiff)
+            if not tiff_input.exists():
+                print(f"Error: Path not found: {tiff_input}", file=sys.stderr)
+                sys.exit(1)
+
+        roi_search_dir = None  # Will be determined later
+
+    # Discover TIFF files
+    if tiff_input.is_dir():
+        tiff_files = discover_tiff_files(tiff_input)
+        if not tiff_files:
+            print(f"Error: No TIFF files found in directory: {tiff_input}", file=sys.stderr)
+            sys.exit(1)
+        print(f"Discovered {len(tiff_files)} TIFF file(s) in {tiff_input}")
+        for tf in tiff_files:
+            print(f"  - {tf.name}")
+    else:
+        # Single TIFF file
+        tiff_files = [tiff_input]
+
+    # Determine ROI search directory for standard workflow
+    if not use_quick_workflow:
+        if args.roi is None:
+            # Auto-discover ROI files in the same directory as TIFF files
+            roi_search_dir = tiff_input if tiff_input.is_dir() else tiff_input.parent
+        else:
+            roi_search_dir = Path(args.roi)
+
+    # Discover ROI files
+    if roi_search_dir is not None:
+        if roi_search_dir.is_dir():
+            roi_files = discover_roi_files(roi_search_dir)
+            if roi_files:
+                print(f"\nDiscovered {len(roi_files)} ROI file(s) in {roi_search_dir}")
+                for rf in roi_files:
+                    print(f"  - {rf.name}")
+            else:
+                print(f"\nNo ROI files found in {roi_search_dir}")
+                roi_files = []
+        elif roi_search_dir.exists() and roi_search_dir.is_file():
+            # Single ROI file
+            roi_files = [roi_search_dir]
+            print(f"\nUsing ROI file: {roi_search_dir}")
+        else:
+            print(f"Error: ROI path not found: {roi_search_dir}", file=sys.stderr)
             sys.exit(1)
     else:
-        roi_path = None
+        roi_files = []
+
+    # Merge ROI files if multiple
+    all_rois = []
+    roi_warnings = []
+    if roi_files:
+        all_rois, roi_warnings = merge_roi_files(roi_files, warn_on_conflict=True)
+        if roi_warnings:
+            print("\nROI Conflicts:")
+            for warning in roi_warnings:
+                print(f"  {warning}")
+        print(f"\nTotal ROIs loaded: {len(all_rois)}")
+        for roi_info in all_rois:
+            print(f"  - {roi_info['name']}")
+
+    # Validate tilt correction requirements
+    if args.tilt and not all_rois:
+        print("Error: --tilt requires ROI files to be available", file=sys.stderr)
+        sys.exit(1)
 
     # Determine mode
     mode = args.mode
-    if mode == 'roi' and roi_path is None:
-        print("Warning: No ROI file provided, switching to 'full' mode")
+    if mode == 'roi' and not all_rois:
+        print("\nWarning: No ROI files provided, switching to 'full' mode")
         mode = 'full'
 
-    output_dir = Path(args.output) if args.output else None
     save_csv = not args.no_save
 
-    # Execute based on mode
+    # Create a helper function to process a single TIFF with merged ROIs
+    def process_single_tiff_with_merged_rois(tiff_path, merged_rois, mode, args, base_output_dir, save_csv, custom_output_base):
+        """Process a single TIFF file with pre-merged ROIs"""
+        import tempfile
+        import zipfile
+        from roifile import roiwrite
+
+        # If we have merged ROIs, we need to create a temporary ROI file for tilt correction
+        temp_roi_path = None
+        if args.tilt and merged_rois:
+            # Create a temporary zip file with all merged ROIs
+            temp_dir = Path(tempfile.mkdtemp())
+            temp_roi_path = temp_dir / "merged_rois.zip"
+
+            with zipfile.ZipFile(temp_roi_path, 'w') as zf:
+                for roi_info in merged_rois:
+                    roi_obj = roi_info['roi_object']
+                    roi_name = roi_info['name']
+                    # Write ROI to temporary file
+                    temp_roi_file = temp_dir / f"{roi_name}.roi"
+                    roiwrite(str(temp_roi_file), roi_obj)
+                    zf.write(temp_roi_file, arcname=f"{roi_name}.roi")
+
+        # Determine output directory
+        if base_output_dir is not None:
+            # User specified output directory
+            output_dir = base_output_dir
+        elif custom_output_base is not None:
+            # Quick workflow: output to custom_output_base/tiff_name_ROI_Spectra/
+            output_dir = custom_output_base / f"{tiff_path.stem}_ROI_Spectra"
+        else:
+            # Default: output next to TIFF file
+            output_dir = None
+
+        try:
+            if mode == 'roi':
+                # Process with merged ROIs directly
+                results = extract_roi_spectra_with_merged_rois(
+                    tiff_path,
+                    merged_rois=merged_rois,
+                    output_dir=output_dir,
+                    save_csv=save_csv,
+                    tilt_roi_name=args.tilt,
+                    temp_roi_path=temp_roi_path
+                )
+                return len(results), 'ROI(s)'
+
+            elif mode == 'full':
+                result = extract_full_image_spectrum(
+                    tiff_path,
+                    output_dir=output_dir,
+                    save_csv=save_csv
+                )
+                return len(result), 'slices'
+
+            elif mode == 'pixel':
+                results = extract_pixel_spectra(
+                    tiff_path,
+                    output_dir=output_dir,
+                    save_csv=save_csv,
+                    stride=args.stride,
+                    n_jobs=args.jobs,
+                    tilt_roi_name=args.tilt,
+                    roi_path=temp_roi_path if args.tilt else None
+                )
+                return len(results), 'pixels'
+
+            elif mode == 'grid':
+                results = extract_grid_spectra(
+                    tiff_path,
+                    grid_size=args.grid_size,
+                    output_dir=output_dir,
+                    save_csv=save_csv,
+                    n_jobs=args.jobs,
+                    tilt_roi_name=args.tilt,
+                    roi_path=temp_roi_path if args.tilt else None
+                )
+                return len(results), 'grid cells'
+
+        finally:
+            # Clean up temporary ROI file
+            if temp_roi_path and temp_roi_path.exists():
+                import shutil
+                shutil.rmtree(temp_roi_path.parent)
+
+    def extract_roi_spectra_with_merged_rois(tiff_path, merged_rois, output_dir, save_csv, tilt_roi_name, temp_roi_path):
+        """Extract ROI spectra using pre-merged ROI list"""
+        from .core import load_tiff_stack, apply_tilt_correction, get_roi_mask, calculate_spectrum
+        import warnings
+
+        stack = load_tiff_stack(tiff_path)
+
+        # Apply tilt correction if requested
+        if tilt_roi_name is not None:
+            if temp_roi_path is None:
+                raise ValueError("temp_roi_path must be provided when using tilt correction")
+            stack, angle, center = apply_tilt_correction(stack, temp_roi_path, tilt_roi_name)
+
+        # Setup output directory
+        if output_dir is None:
+            output_dir = tiff_path.parent / f"{tiff_path.stem}_ROI_Spectra"
+        else:
+            output_dir = Path(output_dir)
+
+        if save_csv:
+            output_dir.mkdir(parents=True, exist_ok=True)
+
+        results = {}
+
+        # Process each ROI from merged list
+        for roi_info in merged_rois:
+            roi_name = roi_info['name']
+            roi_object = roi_info['roi_object']
+
+            # Create mask for this ROI
+            mask = get_roi_mask(roi_object, stack.shape[1:])
+
+            if not mask.any():
+                warnings.warn(f"ROI '{roi_name}' has no pixels, skipping")
+                continue
+
+            # Calculate spectrum
+            df = calculate_spectrum(stack, mask)
+            results[roi_name] = df
+
+            if save_csv:
+                csv_path = output_dir / f"{roi_name}.csv"
+                df.to_csv(csv_path, index=False)
+
+        return results
+
+    # Execute based on mode with progress bar for multiple files
     try:
-        print(f"Processing TIFF: {tiff_path}")
+        print(f"\n{'='*60}")
+        print(f"Processing {len(tiff_files)} TIFF file(s) in {mode} mode")
+        print(f"{'='*60}\n")
 
-        if mode == 'roi':
-            print(f"Using ROI file: {roi_path}")
-            results = extract_roi_spectra(
+        # Determine base output directory
+        base_output_dir = Path(args.output) if args.output else None
+
+        # Process each TIFF file with progress bar
+        total_results = {}
+        for tiff_path in tqdm(tiff_files, desc="Processing TIFFs", unit="file"):
+            tqdm.write(f"\nProcessing: {tiff_path.name}")
+
+            count, unit = process_single_tiff_with_merged_rois(
                 tiff_path,
-                roi_path=roi_path,
-                output_dir=output_dir,
-                save_csv=save_csv,
-                tilt_roi_name=args.tilt
+                all_rois,
+                mode,
+                args,
+                base_output_dir,
+                save_csv,
+                custom_output_base
             )
-            print(f"\nProcessed {len(results)} ROI(s)")
 
-        elif mode == 'full':
-            print("Analyzing full image")
-            result = extract_full_image_spectrum(
-                tiff_path,
-                output_dir=output_dir,
-                save_csv=save_csv
-            )
-            print(f"\nExtracted spectrum with {len(result)} slices")
+            total_results[tiff_path.name] = (count, unit)
+            tqdm.write(f"  Completed: {count} {unit}")
 
-        elif mode == 'pixel':
-            print(f"Analyzing pixels with stride={args.stride}")
-            results = extract_pixel_spectra(
-                tiff_path,
-                output_dir=output_dir,
-                save_csv=save_csv,
-                stride=args.stride,
-                n_jobs=args.jobs,
-                tilt_roi_name=args.tilt,
-                roi_path=roi_path if args.tilt else None
-            )
-            print(f"\nProcessed {len(results)} pixels")
-
-        elif mode == 'grid':
-            print(f"Analyzing grid with {args.grid_size}x{args.grid_size} blocks")
-            results = extract_grid_spectra(
-                tiff_path,
-                grid_size=args.grid_size,
-                output_dir=output_dir,
-                save_csv=save_csv,
-                n_jobs=args.jobs,
-                tilt_roi_name=args.tilt,
-                roi_path=roi_path if args.tilt else None
-            )
-            print(f"\nProcessed {len(results)} grid cells")
-
+        # Summary
+        print(f"\n{'='*60}")
+        print("Processing Summary:")
+        print(f"{'='*60}")
+        for filename, (count, unit) in total_results.items():
+            print(f"  {filename}: {count} {unit}")
+        print(f"\nTotal files processed: {len(tiff_files)}")
         print("\nDone!")
 
     except Exception as e:
-        print(f"Error: {e}", file=sys.stderr)
+        import traceback
+        print(f"\nError: {e}", file=sys.stderr)
+        traceback.print_exc()
         sys.exit(1)
 
 

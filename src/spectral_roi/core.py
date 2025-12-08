@@ -13,6 +13,7 @@ from functools import partial
 from scipy.ndimage import rotate
 from scipy.optimize import fsolve
 from scipy.interpolate import UnivariateSpline
+from tqdm import tqdm
 
 
 def load_tiff_stack(tiff_path: Union[str, Path]) -> np.ndarray:
@@ -90,6 +91,124 @@ def load_imagej_rois(roi_path: Union[str, Path]) -> List[dict]:
         })
 
     return rois
+
+
+def discover_tiff_files(directory: Union[str, Path]) -> List[Path]:
+    """
+    Discover all TIFF files in a directory.
+
+    Parameters
+    ----------
+    directory : str or Path
+        Directory to search for TIFF files
+
+    Returns
+    -------
+    List[Path]
+        List of paths to TIFF files found
+    """
+    directory = Path(directory)
+    if not directory.exists():
+        raise FileNotFoundError(f"Directory not found: {directory}")
+
+    if not directory.is_dir():
+        raise ValueError(f"Path is not a directory: {directory}")
+
+    # Search for TIFF files (including compressed)
+    tiff_files = []
+    for pattern in ['*.tif', '*.tiff', '*.TIF', '*.TIFF']:
+        tiff_files.extend(directory.glob(pattern))
+
+    # Remove duplicates and sort
+    tiff_files = sorted(set(tiff_files))
+
+    return tiff_files
+
+
+def discover_roi_files(directory: Union[str, Path]) -> List[Path]:
+    """
+    Discover all ROI files (.roi and .zip) in a directory.
+
+    Parameters
+    ----------
+    directory : str or Path
+        Directory to search for ROI files
+
+    Returns
+    -------
+    List[Path]
+        List of paths to ROI files found
+    """
+    directory = Path(directory)
+    if not directory.exists():
+        raise FileNotFoundError(f"Directory not found: {directory}")
+
+    if not directory.is_dir():
+        raise ValueError(f"Path is not a directory: {directory}")
+
+    # Search for ROI files
+    roi_files = []
+    for pattern in ['*.roi', '*.zip', '*.ROI', '*.ZIP']:
+        roi_files.extend(directory.glob(pattern))
+
+    # Remove duplicates and sort
+    roi_files = sorted(set(roi_files))
+
+    return roi_files
+
+
+def merge_roi_files(roi_paths: List[Union[str, Path]], warn_on_conflict: bool = True) -> Tuple[List[dict], List[str]]:
+    """
+    Load and merge multiple ROI files, checking for name conflicts.
+
+    Parameters
+    ----------
+    roi_paths : List[str or Path]
+        List of paths to ROI files
+    warn_on_conflict : bool, default=True
+        Whether to warn when ROI names conflict
+
+    Returns
+    -------
+    all_rois : List[dict]
+        Combined list of all ROIs from all files
+    warnings : List[str]
+        List of warning messages about conflicts
+    """
+    all_rois = []
+    roi_names_seen = {}  # Maps ROI name to source file
+    warning_messages = []
+
+    for roi_path in roi_paths:
+        roi_path = Path(roi_path)
+        try:
+            rois = load_imagej_rois(roi_path)
+
+            for roi_info in rois:
+                roi_name = roi_info['name']
+
+                # Check for conflicts
+                if roi_name in roi_names_seen:
+                    msg = (f"Warning: ROI name '{roi_name}' appears in both "
+                           f"'{roi_names_seen[roi_name]}' and '{roi_path.name}'. "
+                           f"Using ROI from '{roi_path.name}'.")
+                    warning_messages.append(msg)
+                    if warn_on_conflict:
+                        warnings.warn(msg)
+
+                    # Remove the previous ROI with this name
+                    all_rois = [r for r in all_rois if r['name'] != roi_name]
+
+                # Add this ROI
+                all_rois.append(roi_info)
+                roi_names_seen[roi_name] = roi_path.name
+
+        except Exception as e:
+            msg = f"Error loading ROI file '{roi_path}': {e}"
+            warning_messages.append(msg)
+            warnings.warn(msg)
+
+    return all_rois, warning_messages
 
 
 def get_roi_mask(roi_object, image_shape: Tuple[int, int]) -> np.ndarray:
