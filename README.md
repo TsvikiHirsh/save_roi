@@ -3,6 +3,31 @@
 
 Quickly extract spectral data from TIFF stacks using ImageJ ROIs.
 
+## Quick Intro - Simplest Workflow
+
+The simplest way to use Save ROI is with the quick workflow. Just organize your files like this:
+
+```
+your_project/
+├── ROI2.zip              # Your ImageJ ROI file (in working directory)
+└── data/
+    └── final/
+        └── image.tiff    # Your TIFF stack
+```
+
+Then run a single command:
+
+```bash
+cd your_project
+save-roi data
+```
+
+That's it! The tool will:
+- ✅ Auto-discover all `.roi` and `.zip` files in your current directory
+- ✅ Auto-discover all TIFF files in `data/final/`
+- ✅ Process all ROIs from all discovered ROI files
+- ✅ Create output at `data/image_ROI_Spectra/` (with progress bar!)
+
 ## Overview
 
 **Save ROI** is a Python package that provides tools for extracting spectral profiles from TIFF image stacks. It supports multiple analysis modes:
@@ -17,6 +42,10 @@ This package is ideal for analyzing spectroscopic imaging data, z-stacks, or any
 
 ## Features
 
+- **Quick Workflow**: Simple `save-roi data` command for standard directory structures
+- **Auto-Discovery**: Automatically finds TIFF and ROI files in directories
+- **Multi-File Merging**: Automatically merges multiple ROI files with conflict detection
+- **Progress Bars**: Real-time progress tracking for batch processing
 - **Tilt Correction**: Straighten and center images using a symmetry line ROI
 - **Multiple input formats**: Works with `.roi` and `.zip` ROI files from ImageJ
 - **Flexible analysis modes**: ROI-based, full image, grid patterns, or pixel-by-pixel
@@ -41,11 +70,11 @@ python scripts/setup_test_data.py
 pip install -e ".[dev]"
 ```
 
-### From PyPI (when published)
-
-```bash
-pip install save-roi
-```
+**Key features:**
+- Multiple ROI files are automatically merged
+- Conflicts are detected and reported
+- Works with any number of TIFF files in `data/final/`
+- Perfect for batch processing spectroscopy data
 
 ## Quick Start
 
