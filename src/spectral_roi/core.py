@@ -275,15 +275,26 @@ def _process_single_mask(args):
     Parameters
     ----------
     args : tuple
-        (mask_name, mask, stack) tuple
+        (mask_name, mask, stack_shape, shared_mem_name, dtype) tuple
 
     Returns
     -------
     tuple
         (mask_name, DataFrame) tuple
     """
-    mask_name, mask, stack = args
+    from multiprocessing import shared_memory
+
+    mask_name, mask, stack_shape, shared_mem_name, dtype = args
+
+    # Access shared memory
+    shm = shared_memory.SharedMemory(name=shared_mem_name)
+    stack = np.ndarray(stack_shape, dtype=dtype, buffer=shm.buf)
+
     df = calculate_spectrum(stack, mask)
+
+    # Don't close/unlink here - main process will handle cleanup
+    shm.close()
+
     return mask_name, df
 
 
@@ -622,6 +633,8 @@ def extract_pixel_spectra(
     dict
         Dictionary mapping pixel coordinates to DataFrames with spectral data
     """
+    from multiprocessing import shared_memory
+
     tiff_path = Path(tiff_path)
     stack = load_tiff_stack(tiff_path)
 
@@ -651,27 +664,40 @@ def extract_pixel_spectra(
         n_jobs = min(n_jobs, cpu_count())
 
     print(f"Extracting pixel spectra with stride={stride} using {n_jobs} cores...")
+    print(f"Stack size: {stack.shape}, Memory: {stack.nbytes / 1024**3:.2f} GB")
 
-    # Prepare all masks and their names
-    tasks = []
-    for y in range(0, height, stride):
-        for x in range(0, width, stride):
-            # Create single-pixel mask
-            mask = np.zeros((height, width), dtype=bool)
-            mask[y, x] = True
-            pixel_name = f"pixel_x{x}_y{y}"
-            tasks.append((pixel_name, mask, stack))
+    # Create shared memory for the stack
+    shm = shared_memory.SharedMemory(create=True, size=stack.nbytes)
+    shared_stack = np.ndarray(stack.shape, dtype=stack.dtype, buffer=shm.buf)
+    np.copyto(shared_stack, stack)
 
-    # Process in parallel
-    with Pool(processes=n_jobs) as pool:
-        results_list = pool.map(_process_single_mask, tasks)
+    try:
+        # Prepare all masks and their names
+        tasks = []
+        for y in range(0, height, stride):
+            for x in range(0, width, stride):
+                # Create single-pixel mask
+                mask = np.zeros((height, width), dtype=bool)
+                mask[y, x] = True
+                pixel_name = f"pixel_x{x}_y{y}"
+                tasks.append((pixel_name, mask, stack.shape, shm.name, stack.dtype))
 
-    # Convert to dictionary
-    results = dict(results_list)
+        # Process in parallel
+        with Pool(processes=n_jobs) as pool:
+            results_list = pool.map(_process_single_mask, tasks)
+
+        # Convert to dictionary
+        results = dict(results_list)
+
+    finally:
+        # Clean up shared memory
+        shm.close()
+        shm.unlink()
 
     # Save CSVs if requested
     if save_csv:
-        for pixel_name, df in results.items():
+        print(f"Saving {len(results)} CSV files...")
+        for pixel_name, df in tqdm(results.items(), desc="Saving CSVs", disable=len(results) < 100):
             csv_path = output_dir / f"{pixel_name}.csv"
             df.to_csv(csv_path, index=False)
 
@@ -714,6 +740,8 @@ def extract_grid_spectra(
     dict
         Dictionary mapping grid cell coordinates to DataFrames with spectral data
     """
+    from multiprocessing import shared_memory
+
     tiff_path = Path(tiff_path)
     stack = load_tiff_stack(tiff_path)
 
@@ -743,30 +771,43 @@ def extract_grid_spectra(
         n_jobs = min(n_jobs, cpu_count())
 
     print(f"Extracting grid spectra with {grid_size}x{grid_size} blocks using {n_jobs} cores...")
+    print(f"Stack size: {stack.shape}, Memory: {stack.nbytes / 1024**3:.2f} GB")
 
-    # Prepare all masks and their names
-    tasks = []
-    for y in range(0, height, grid_size):
-        for x in range(0, width, grid_size):
-            # Create grid block mask
-            mask = np.zeros((height, width), dtype=bool)
-            y_end = min(y + grid_size, height)
-            x_end = min(x + grid_size, width)
-            mask[y:y_end, x:x_end] = True
+    # Create shared memory for the stack
+    shm = shared_memory.SharedMemory(create=True, size=stack.nbytes)
+    shared_stack = np.ndarray(stack.shape, dtype=stack.dtype, buffer=shm.buf)
+    np.copyto(shared_stack, stack)
 
-            grid_name = f"grid_{grid_size}x{grid_size}_x{x}_y{y}"
-            tasks.append((grid_name, mask, stack))
+    try:
+        # Prepare all masks and their names
+        tasks = []
+        for y in range(0, height, grid_size):
+            for x in range(0, width, grid_size):
+                # Create grid block mask
+                mask = np.zeros((height, width), dtype=bool)
+                y_end = min(y + grid_size, height)
+                x_end = min(x + grid_size, width)
+                mask[y:y_end, x:x_end] = True
 
-    # Process in parallel
-    with Pool(processes=n_jobs) as pool:
-        results_list = pool.map(_process_single_mask, tasks)
+                grid_name = f"grid_{grid_size}x{grid_size}_x{x}_y{y}"
+                tasks.append((grid_name, mask, stack.shape, shm.name, stack.dtype))
 
-    # Convert to dictionary
-    results = dict(results_list)
+        # Process in parallel
+        with Pool(processes=n_jobs) as pool:
+            results_list = pool.map(_process_single_mask, tasks)
+
+        # Convert to dictionary
+        results = dict(results_list)
+
+    finally:
+        # Clean up shared memory
+        shm.close()
+        shm.unlink()
 
     # Save CSVs if requested
     if save_csv:
-        for grid_name, df in results.items():
+        print(f"Saving {len(results)} CSV files...")
+        for grid_name, df in tqdm(results.items(), desc="Saving CSVs", disable=len(results) < 100):
             csv_path = output_dir / f"{grid_name}.csv"
             df.to_csv(csv_path, index=False)
 

@@ -3,30 +3,46 @@
 
 Quickly extract spectral data from TIFF stacks using ImageJ ROIs.
 
-## Quick Intro - Simplest Workflow
+## TLDR
 
-The simplest way to use Save ROI is with the quick workflow. Just organize your files like this:
+```bash
+# Quick workflow - auto-discovers everything
+save-roi data
 
+# Single file with ROI
+save-roi --tiff image.tiff --roi rois.zip
+
+# Full image analysis (no ROI)
+save-roi --tiff image.tiff --mode full
+
+# Grid-based analysis (4×4 pixel blocks)
+save-roi --tiff image.tiff --mode grid --grid-size 4
+```
+
+See [`notebooks/example.sh`](notebooks/example.sh) and [`notebooks/example_usage.ipynb`](notebooks/example_usage.ipynb) for more examples.
+
+## Quick Start
+
+**Organize your files:**
 ```
 your_project/
-├── ROI2.zip              # Your ImageJ ROI file (in working directory)
+├── ROI2.zip              # Your ImageJ ROI file
 └── data/
     └── final/
         └── image.tiff    # Your TIFF stack
 ```
 
-Then run a single command:
-
+**Run one command:**
 ```bash
 cd your_project
 save-roi data
 ```
 
-That's it! The tool will:
-- ✅ Auto-discover all `.roi` and `.zip` files in your current directory
-- ✅ Auto-discover all TIFF files in `data/final/`
-- ✅ Process all ROIs from all discovered ROI files
-- ✅ Create output at `data/image_ROI_Spectra/` (with progress bar!)
+**Output:**
+- Auto-discovers ROI files in current directory
+- Auto-discovers TIFF files in `data/final/`
+- Creates CSV files in `data/image_ROI_Spectra/`
+- Shows progress bar
 
 ## Overview
 
@@ -42,22 +58,17 @@ This package is ideal for analyzing spectroscopic imaging data, z-stacks, or any
 
 ## Features
 
-- **Quick Workflow**: Simple `save-roi data` command for standard directory structures
-- **Auto-Discovery**: Automatically finds TIFF and ROI files in directories
-- **Multi-File Merging**: Automatically merges multiple ROI files with conflict detection
-- **Progress Bars**: Real-time progress tracking for batch processing
-- **Tilt Correction**: Straighten and center images using a symmetry line ROI
-- **Multiple input formats**: Works with `.roi` and `.zip` ROI files from ImageJ
-- **Flexible analysis modes**: ROI-based, full image, grid patterns, or pixel-by-pixel
-- **Parallel processing**: Fast grid/pixel analysis using multiple CPU cores (default: 10 cores)
-- **CSV output**: Generates CSV files with consistent structure (stack, counts, err)
-- **Command-line interface**: Easy batch processing with CLI
-- **Python API**: Use directly in Python scripts or Jupyter notebooks
-- **Pip installable**: Standard Python package installation
+- **Quick Workflow**: Simple `save-roi data` command
+- **Auto-Discovery**: Finds TIFF and ROI files automatically
+- **Multiple ROI Files**: Merges multiple `.roi`/`.zip` files
+- **Progress Bars**: Real-time progress tracking
+- **Parallel Processing**: Fast grid analysis (up to 10 CPU cores)
+- **Memory Efficient**: Handles 3GB+ TIFF stacks
+- **Python API**: Use in scripts or Jupyter notebooks
 
 ## Installation
 
-### From source (development)
+### From source 
 
 ```bash
 # Clone or download the repository
@@ -66,8 +77,8 @@ cd save_roi
 # Extract test data (TIFF file is compressed to save space)
 python scripts/setup_test_data.py
 
-# Install in editable mode with development dependencies
-pip install -e ".[dev]"
+# Install in editable mode 
+pip install -e .
 ```
 
 **Key features:**
@@ -76,216 +87,76 @@ pip install -e ".[dev]"
 - Works with any number of TIFF files in `data/final/`
 - Perfect for batch processing spectroscopy data
 
-## Quick Start
+## Common Usage
 
-### Command Line Usage
+### Command Line
 
 ```bash
-# Extract spectra using ImageJ ROI file
-save-roi --tiff image.tiff --roi roi_file.zip
+# Quick workflow - auto-discovers everything
+save-roi data
 
-# Extract spectra with tilt correction
-save-roi --tiff image.tiff --roi roi_file.zip --tilt symmetry_line
+# Specific files
+save-roi --tiff image.tiff --roi rois.zip
 
-# Extract spectrum for entire image (no ROI)
-save-roi --tiff image.tiff
+# Full image (no ROI)
+save-roi --tiff image.tiff --mode full
 
-# Extract spectra for 4x4 pixel grid (uses 10 cores by default)
+# Grid analysis (4×4 blocks)
 save-roi --tiff image.tiff --mode grid --grid-size 4
 
-# Extract spectra for every 4th pixel using all available cores
-save-roi --tiff image.tiff --mode pixel --stride 4 --jobs -1
+# Use all CPU cores
+save-roi --tiff image.tiff --mode grid --jobs -1
 ```
 
-### Python API Usage
+### Python API
 
 ```python
 from spectral_roi import extract_roi_spectra
 
-# Extract spectra using ImageJ ROI file
+# Extract spectra with ROI file
 results = extract_roi_spectra(
     tiff_path="image.tiff",
-    roi_path="roi_file.zip",
-    save_csv=True
-)
-
-# Extract spectra with tilt correction
-results = extract_roi_spectra(
-    tiff_path="image.tiff",
-    roi_path="roi_file.zip",
-    tilt_roi_name="symmetry_line",
-    save_csv=True
+    roi_path="rois.zip"
 )
 
 # Access results as pandas DataFrames
 for roi_name, df in results.items():
-    print(f"{roi_name}:")
-    print(df.head())
+    print(f"{roi_name}: {len(df)} slices")
 ```
 
-### Bash Script Usage
-
-```bash
-# Use the provided bash wrapper
-./scripts/save_roi.sh --tiff image.tiff --roi roi_file.zip
-```
-
-## Tilt Correction
-
-Tilt correction allows you to automatically straighten and center images based on a symmetry line defined by an ROI. This is useful for correcting sample tilt in microscopy or spectroscopy data.
-
-### How it works
-
-1. Create a line ROI in ImageJ that follows a symmetry axis of your sample
-2. Save the ROI with a descriptive name (e.g., "symmetry_line")
-3. Use the `--tilt` argument to apply correction before extracting spectra
-
-### Command Line Usage
-
-```bash
-# Apply tilt correction using an ROI named "symmetry_line"
-save-roi --tiff image.tiff --roi roi_file.zip --tilt symmetry_line
-
-# Combine tilt correction with grid analysis
-save-roi --tiff image.tiff --roi roi_file.zip --tilt symmetry_line --mode grid
-```
-
-### Python API Usage
-
-```python
-from spectral_roi import apply_tilt_correction, load_tiff_stack
-import tifffile
-
-# Load stack
-stack = load_tiff_stack("image.tiff")
-
-# Apply tilt correction
-corrected_stack, angle, center = apply_tilt_correction(
-    stack,
-    roi_path="roi_file.zip",
-    tilt_roi_name="symmetry_line"
-)
-
-# Save corrected stack
-tifffile.imwrite("corrected.tiff", corrected_stack)
-
-# Or extract spectra directly with tilt correction
-from spectral_roi import extract_roi_spectra
-
-results = extract_roi_spectra(
-    tiff_path="image.tiff",
-    roi_path="roi_file.zip",
-    tilt_roi_name="symmetry_line"
-)
-```
-
-### ROI Preparation in ImageJ
-
-1. Open your TIFF stack in ImageJ
-2. Use the **Line** tool to draw a line along a symmetry axis
-   - For best results, draw the line through features that should be vertical
-   - The line can be straight or follow multiple points
-3. Add to ROI Manager (Ctrl+T or Cmd+T)
-4. Rename the ROI to something meaningful (e.g., "symmetry_line")
-5. Save all ROIs: **ROI Manager → More → Save**
-
-## Command Line Options
-
-```
-usage: save-roi [-h] -t TIFF [-r ROI] [-o OUTPUT] [-m {roi,full,pixel,grid}]
-                [--grid-size GRID_SIZE] [--stride STRIDE] [-j JOBS]
-                [--no-save] [--tilt TILT] [--version]
-
-Options:
-  -h, --help            Show help message
-  -t, --tiff TIFF       Path to TIFF stack file (required)
-  -r, --roi ROI         Path to ImageJ ROI file (.roi or .zip)
-  -o, --output OUTPUT   Output directory for CSV files
-  -m, --mode {roi,full,pixel,grid}
-                        Analysis mode (default: roi)
-  --grid-size GRID_SIZE
-                        Grid block size for grid mode (default: 4)
-  --stride STRIDE       Stride for pixel mode (default: 1)
-  -j, --jobs JOBS       Number of parallel jobs (default: 10, use -1 for all cores)
-  --no-save             Do not save CSV files
-  --tilt TILT           Name of ROI to use for tilt correction
-  --version             Show version number
-```
+See [`notebooks/example_usage.ipynb`](notebooks/example_usage.ipynb) and [`notebooks/example.sh`](notebooks/example.sh) for detailed examples.
 
 ## Analysis Modes
 
-### 1. ROI Mode (Default)
+### ROI Mode (Default)
 
-Use ImageJ ROI files to define regions of interest.
+Extract spectra from ImageJ ROI regions.
 
 ```bash
-save-roi --tiff image.tiff --roi roi_file.zip
+save-roi --tiff image.tiff --roi rois.zip
 ```
 
-```python
-from spectral_roi import extract_roi_spectra
+### Full Image Mode
 
-results = extract_roi_spectra(
-    tiff_path="image.tiff",
-    roi_path="roi_file.zip"
-)
-```
-
-### 2. Full Image Mode
-
-Analyze the entire image without ROI constraints.
+Analyze the entire image (no ROI needed).
 
 ```bash
 save-roi --tiff image.tiff --mode full
 ```
 
-```python
-from spectral_roi import extract_full_image_spectrum
+### Grid Mode
 
-df = extract_full_image_spectrum(tiff_path="image.tiff")
-```
-
-### 3. Grid Mode
-
-Extract spectra for grid-based pixel blocks.
+Divide image into blocks and average each block.
 
 ```bash
-# 4x4 pixel blocks
+# 4×4 pixel blocks
 save-roi --tiff image.tiff --mode grid --grid-size 4
 
-# 8x8 pixel blocks
+# 8×8 pixel blocks (faster, lower resolution)
 save-roi --tiff image.tiff --mode grid --grid-size 8
 ```
 
-```python
-from spectral_roi import extract_grid_spectra
-
-results = extract_grid_spectra(
-    tiff_path="image.tiff",
-    grid_size=4
-)
-```
-
-### 4. Pixel Mode
-
-Extract spectra for individual pixels with optional stride.
-
-```bash
-# Every pixel (warning: creates many files!)
-save-roi --tiff image.tiff --mode pixel
-
-# Every 4th pixel in each direction
-save-roi --tiff image.tiff --mode pixel --stride 4
-```
-
-```python
-from spectral_roi import extract_pixel_spectra
-
-results = extract_pixel_spectra(
-    tiff_path="image.tiff",
-    stride=4
-)
-```
+**For large files (3GB+)**: Use `--jobs 4` to reduce memory usage or increase `--grid-size` for faster processing.
 
 ## Output Format
 
