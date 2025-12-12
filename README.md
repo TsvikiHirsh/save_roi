@@ -17,6 +17,10 @@ save-roi --tiff image.tiff --mode full
 
 # Grid-based analysis (4×4 pixel blocks)
 save-roi --tiff image.tiff --mode grid --grid-size 4
+
+# Organize different analyses with suffix
+save-roi data --suffix run1
+save-roi data --suffix corrected
 ```
 
 See [`notebooks/example.sh`](notebooks/example.sh) and [`notebooks/example_usage.ipynb`](notebooks/example_usage.ipynb) for more examples.
@@ -157,6 +161,40 @@ save-roi --tiff image.tiff --mode grid --grid-size 8
 ```
 
 **For large files (3GB+)**: Use `--jobs 4` to reduce memory usage or increase `--grid-size` for faster processing.
+
+## Organizing Multiple Analyses
+
+Use the `--suffix` option to create subfolders for different analyses of the same data:
+
+```bash
+# Different processing runs
+save-roi data --suffix run1
+save-roi data --suffix run2
+
+# Different corrections
+save-roi data --suffix raw
+save-roi data --suffix background_subtracted
+save-roi data --suffix tilt_corrected --tilt symmetry_line
+
+# Different modes
+save-roi data --suffix roi_analysis
+save-roi data --suffix grid_4x4 --mode grid --grid-size 4
+```
+
+**Output structure:**
+```
+data/
+└── image_ROI_Spectra/
+    ├── run1/
+    │   ├── ROI_1.csv
+    │   └── ROI_2.csv
+    ├── run2/
+    │   ├── ROI_1.csv
+    │   └── ROI_2.csv
+    └── corrected/
+        ├── ROI_1.csv
+        └── ROI_2.csv
+```
 
 ## Output Format
 

@@ -10,7 +10,7 @@ import numpy as np
 import tifffile
 from roifile import ImagejRoi, roiwrite
 
-from spectral_roi import (
+from save_roi import (
     discover_tiff_files,
     discover_roi_files,
     merge_roi_files,
@@ -39,7 +39,7 @@ def sample_roi():
     # Use the existing ROI2.zip from notebooks for testing
     test_roi_path = Path(__file__).parent.parent / "notebooks" / "ROI2.zip"
     if test_roi_path.exists():
-        from spectral_roi import load_imagej_rois
+        from save_roi import load_imagej_rois
         rois = load_imagej_rois(test_roi_path)
         if rois:
             return rois[0]['roi_object']

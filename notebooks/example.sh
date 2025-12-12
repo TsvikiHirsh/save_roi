@@ -90,9 +90,27 @@ echo "  - Reduces memory usage"
 echo ""
 
 # ============================================================================
-# Example 6: Custom Output Directory
+# Example 6: Organize Multiple Analyses with Suffix
 # ============================================================================
-echo "Example 6: Custom Output"
+echo "Example 6: Organize with Suffix"
+echo "-------------------------------"
+echo "Commands:"
+echo "  save-roi data --suffix run1"
+echo "  save-roi data --suffix run2"
+echo "  save-roi data --suffix corrected --tilt symmetry_line"
+echo ""
+echo "What it does:"
+echo "  - Creates subfolders for different analyses"
+echo "  - Output: data/image_ROI_Spectra/run1/"
+echo "  - Output: data/image_ROI_Spectra/run2/"
+echo "  - Output: data/image_ROI_Spectra/corrected/"
+echo "  - Perfect for comparing different processing methods"
+echo ""
+
+# ============================================================================
+# Example 7: Custom Output Directory
+# ============================================================================
+echo "Example 7: Custom Output"
 echo "-----------------------"
 echo "Command:"
 echo "  save-roi --tiff image.tiff --roi ROI2.zip --output ./my_results"
@@ -102,9 +120,9 @@ echo "  - Saves CSV files to ./my_results/ instead of default location"
 echo ""
 
 # ============================================================================
-# Example 7: Use All CPU Cores
+# Example 8: Use All CPU Cores
 # ============================================================================
-echo "Example 7: Maximum Performance"
+echo "Example 8: Maximum Performance"
 echo "-----------------------------"
 echo "Command:"
 echo "  save-roi --tiff image.tiff --mode grid --jobs -1"

@@ -91,6 +91,13 @@ Examples:
     )
 
     parser.add_argument(
+        '-s', '--suffix',
+        type=str,
+        default=None,
+        help='Optional subfolder name within the output directory. Useful for organizing different analyses (e.g., "corrected", "run1", "background").'
+    )
+
+    parser.add_argument(
         '-m', '--mode',
         type=str,
         choices=['roi', 'full', 'pixel', 'grid'],
@@ -291,12 +298,22 @@ Examples:
         if base_output_dir is not None:
             # User specified output directory
             output_dir = base_output_dir
+            # Add suffix if provided
+            if args.suffix:
+                output_dir = output_dir / args.suffix
         elif custom_output_base is not None:
             # Quick workflow: output to custom_output_base/tiff_name_ROI_Spectra/
             output_dir = custom_output_base / f"{tiff_path.stem}_ROI_Spectra"
+            # Add suffix if provided
+            if args.suffix:
+                output_dir = output_dir / args.suffix
         else:
             # Default: output next to TIFF file
-            output_dir = None
+            if args.suffix:
+                # If suffix provided, create default output dir with suffix
+                output_dir = tiff_path.parent / f"{tiff_path.stem}_ROI_Spectra" / args.suffix
+            else:
+                output_dir = None
 
         try:
             if mode == 'roi':
