@@ -40,7 +40,7 @@ dev = [
 ]
 
 [project.scripts]
-save-roi = "spectral_roi.cli:main"
+save-roi = "save_roi.cli:main"
 
 [project.urls]
 Homepage = "https://github.com/TsvikiHirsh/save_roi"

@@ -44,7 +44,7 @@ save-roi --tiff notebooks/image.tiff --roi notebooks/ROI2.zip --output ./my_resu
 ### 3. Python API
 
 ```python
-from spectral_roi import extract_roi_spectra, extract_full_image_spectrum
+from save_roi import extract_roi_spectra, extract_full_image_spectrum
 
 # Extract using ImageJ ROI file
 results = extract_roi_spectra(
@@ -74,7 +74,7 @@ See [notebooks/example_usage.ipynb](notebooks/example_usage.ipynb) for detailed 
 
 ```
 save_roi/
-├── src/spectral_roi/          # Main package source
+├── src/save_roi/          # Main package source
 │   ├── __init__.py
 │   ├── core.py               # Core extraction functions
 │   └── cli.py                # Command-line interface
@@ -122,7 +122,7 @@ pytest tests/
 pytest tests/ -v
 
 # Run with coverage
-pytest tests/ --cov=spectral_roi
+pytest tests/ --cov=save_roi
 ```
 
 ## Common Use Cases
