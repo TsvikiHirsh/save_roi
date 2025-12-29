@@ -21,6 +21,9 @@ pip install -e .
 # Extract spectra using ImageJ ROI file
 save-roi --tiff notebooks/image.tiff --roi notebooks/ROI2.zip
 
+# Multi-folder analysis (automatically creates SUM folder)
+save-roi "data/run23_*"
+
 # Extract spectrum for entire image (no ROI)
 save-roi --tiff notebooks/image.tiff --mode full
 
@@ -44,7 +47,11 @@ save-roi --tiff notebooks/image.tiff --roi notebooks/ROI2.zip --output ./my_resu
 ### 3. Python API
 
 ```python
-from save_roi import extract_roi_spectra, extract_full_image_spectrum
+from save_roi import (
+    extract_roi_spectra,
+    extract_full_image_spectrum,
+    sum_roi_spectra_from_folders
+)
 
 # Extract using ImageJ ROI file
 results = extract_roi_spectra(
@@ -57,6 +64,17 @@ for roi_name, df in results.items():
     print(f"\n{roi_name}:")
     print(df.head())
     print(f"Total counts: {df['counts'].sum()}")
+
+# Sum spectra from multiple runs
+summed_results = sum_roi_spectra_from_folders(
+    roi_spectra_dirs=[
+        "data/run1/image_ROI_Spectra",
+        "data/run2/image_ROI_Spectra",
+        "data/run3/image_ROI_Spectra"
+    ],
+    output_dir="data/SUM",
+    save_csv=True
+)
 
 # Extract full image spectrum
 df = extract_full_image_spectrum(
@@ -108,6 +126,7 @@ All analysis modes produce CSV files with the same structure:
 | Mode | Description | Command Example |
 |------|-------------|-----------------|
 | **ROI** | Use ImageJ ROI files | `--roi roi.zip` |
+| **Multi-Folder** | Analyze multiple folders with SUM | `"data/run23_*"` |
 | **Full** | Analyze entire image | `--mode full` |
 | **Grid** | Grid-based blocks | `--mode grid --grid-size 4` |
 | **Pixel** | Individual pixels | `--mode pixel --stride 4` |
@@ -132,6 +151,18 @@ Extract spectral profiles from different ROIs in your sample:
 ```bash
 save-roi --tiff spectrum_stack.tiff --roi regions.zip
 ```
+
+### Multi-Run Analysis
+Analyze multiple experimental runs and automatically sum them:
+```bash
+# Analyzes run23_1, run23_2, run23_3, etc. and creates a SUM folder
+save-roi "data/run23_*"
+```
+
+This will:
+- Process each folder separately (e.g., data/run23_1/, data/run23_2/, etc.)
+- Store ROI spectra in each folder's designated location
+- Create a SUM folder with combined counts and recalculated uncertainties
 
 ### Grid-Based Analysis
 Systematic spatial analysis with grid patterns (parallel processing):

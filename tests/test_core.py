@@ -9,13 +9,13 @@ from pathlib import Path
 import tempfile
 import shutil
 
-from spectral_roi import (
+from save_roi import (
     extract_roi_spectra,
     extract_full_image_spectrum,
     extract_pixel_spectra,
     extract_grid_spectra,
 )
-from spectral_roi.core import (
+from save_roi.core import (
     load_tiff_stack,
     load_imagej_rois,
     calculate_spectrum,

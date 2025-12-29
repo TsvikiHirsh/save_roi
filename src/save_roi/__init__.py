@@ -14,7 +14,9 @@ from .core import (
     load_imagej_rois,
     discover_tiff_files,
     discover_roi_files,
+    discover_directories_with_wildcard,
     merge_roi_files,
+    sum_roi_spectra_from_folders,
 )
 
 __all__ = [
@@ -27,5 +29,7 @@ __all__ = [
     "load_imagej_rois",
     "discover_tiff_files",
     "discover_roi_files",
+    "discover_directories_with_wildcard",
     "merge_roi_files",
+    "sum_roi_spectra_from_folders",
 ]

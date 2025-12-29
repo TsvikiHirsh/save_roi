@@ -18,6 +18,9 @@ save-roi --tiff image.tiff --mode full
 # Grid-based analysis (4×4 pixel blocks)
 save-roi --tiff image.tiff --mode grid --grid-size 4
 
+# Multi-folder analysis with automatic summing
+save-roi "data/run23_*"
+
 # Organize different analyses with suffix
 save-roi data --suffix run1
 save-roi data --suffix corrected
@@ -196,6 +199,66 @@ data/
         └── ROI_2.csv
 ```
 
+## Multi-Folder Analysis
+
+Process multiple data folders in a single command using wildcard patterns. Each folder is analyzed separately, and a **SUM** folder is automatically created with combined results.
+
+```bash
+# Analyze all matching folders and create SUM folder
+save-roi "data/run23_*"
+
+# With suffix for organized output
+save-roi "experiments/sample_*" --suffix corrected
+```
+
+**Input structure:**
+```
+data/
+├── ROI2.zip              # Shared ROI file
+├── run23_1/
+│   └── final/
+│       └── image.tiff
+├── run23_2/
+│   └── final/
+│       └── image.tiff
+└── run23_3/
+    └── final/
+        └── image.tiff
+```
+
+**Output structure:**
+```
+data/
+├── run23_1/
+│   └── image_ROI_Spectra/
+│       ├── ROI_1.csv
+│       └── ROI_2.csv
+├── run23_2/
+│   └── image_ROI_Spectra/
+│       ├── ROI_1.csv
+│       └── ROI_2.csv
+├── run23_3/
+│   └── image_ROI_Spectra/
+│       ├── ROI_1.csv
+│       └── ROI_2.csv
+└── SUM/                  # Automatically created
+    ├── ROI_1.csv         # Sum of all run23_* ROI_1.csv
+    └── ROI_2.csv         # Sum of all run23_* ROI_2.csv
+```
+
+### How the SUM folder works:
+
+1. **Counts are summed**: For each slice, counts from all matching folders are added together
+2. **Uncertainty recalculated**: Errors are recalculated as √(total_counts) using Poisson statistics
+3. **Automatic location**: SUM folder is placed alongside the ROI_Spectra folders
+4. **All ROIs included**: All CSV files found across any folder are summed
+
+**Example data:**
+
+If `run23_1/ROI_1.csv` has counts [100, 200, 300] and `run23_2/ROI_1.csv` has counts [150, 250, 350], then `SUM/ROI_1.csv` will have:
+- Counts: [250, 450, 650]
+- Errors: [√250, √450, √650] ≈ [15.8, 21.2, 25.5]
+
 ## Output Format
 
 All analysis modes produce CSV files with the same structure:
@@ -293,6 +356,46 @@ Extract spectral data for individual pixels.
 - `roi_path`: Path to ROI file (required if using tilt correction)
 
 **Returns:** Dictionary mapping pixel coordinates to pandas DataFrames
+
+#### `discover_directories_with_wildcard(pattern)`
+
+Discover directories matching a wildcard pattern.
+
+**Parameters:**
+- `pattern`: Directory pattern with wildcards (e.g., "data/run23_*")
+
+**Returns:** List of Path objects for matching directories
+
+#### `sum_roi_spectra_from_folders(roi_spectra_dirs, output_dir, save_csv=True)`
+
+Sum ROI spectra from multiple folders and recalculate uncertainties.
+
+**Parameters:**
+- `roi_spectra_dirs`: List of directories containing ROI spectra CSV files
+- `output_dir`: Output directory for summed CSV files
+- `save_csv`: Whether to save results to CSV files (default: True)
+
+**Returns:** Dictionary mapping ROI names to DataFrames with summed spectral data
+
+**Example:**
+```python
+from save_roi import sum_roi_spectra_from_folders
+
+# Sum spectra from multiple runs
+results = sum_roi_spectra_from_folders(
+    roi_spectra_dirs=[
+        "data/run1/image_ROI_Spectra",
+        "data/run2/image_ROI_Spectra",
+        "data/run3/image_ROI_Spectra"
+    ],
+    output_dir="data/SUM",
+    save_csv=True
+)
+
+# Access summed data
+for roi_name, df in results.items():
+    print(f"{roi_name}: total counts = {df['counts'].sum()}")
+```
 
 ## Use Cases
 

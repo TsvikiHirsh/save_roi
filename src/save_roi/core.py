@@ -14,6 +14,7 @@ from scipy.ndimage import rotate
 from scipy.optimize import fsolve
 from scipy.interpolate import UnivariateSpline
 from tqdm import tqdm
+import glob
 
 
 def load_tiff_stack(tiff_path: Union[str, Path]) -> np.ndarray:
@@ -155,6 +156,32 @@ def discover_roi_files(directory: Union[str, Path]) -> List[Path]:
     roi_files = sorted(set(roi_files))
 
     return roi_files
+
+
+def discover_directories_with_wildcard(pattern: Union[str, Path]) -> List[Path]:
+    """
+    Discover directories matching a wildcard pattern.
+
+    Parameters
+    ----------
+    pattern : str or Path
+        Directory pattern with wildcards (e.g., "data/run23_*")
+
+    Returns
+    -------
+    List[Path]
+        List of directory paths that match the pattern, sorted
+    """
+    pattern_str = str(pattern)
+    matched_paths = glob.glob(pattern_str)
+
+    # Filter to only include directories
+    directories = [Path(p) for p in matched_paths if Path(p).is_dir()]
+
+    # Sort for consistent ordering
+    directories = sorted(directories)
+
+    return directories
 
 
 def merge_roi_files(roi_paths: List[Union[str, Path]], warn_on_conflict: bool = True) -> Tuple[List[dict], List[str]]:
@@ -812,5 +839,109 @@ def extract_grid_spectra(
             df.to_csv(csv_path, index=False)
 
     print(f"Saved {len(results)} grid spectra to {output_dir}")
+
+    return results
+
+
+def sum_roi_spectra_from_folders(
+    roi_spectra_dirs: List[Union[str, Path]],
+    output_dir: Union[str, Path],
+    save_csv: bool = True
+) -> dict:
+    """
+    Sum ROI spectra from multiple folders and recalculate uncertainties.
+
+    This function reads corresponding CSV files from multiple folders,
+    sums the counts for each slice, and recalculates the uncertainty
+    as sqrt(sum of counts) assuming Poisson statistics.
+
+    Parameters
+    ----------
+    roi_spectra_dirs : List[str or Path]
+        List of directories containing ROI spectra CSV files
+    output_dir : str or Path
+        Output directory for summed CSV files (typically a "SUM" folder)
+    save_csv : bool, default=True
+        Whether to save results to CSV files
+
+    Returns
+    -------
+    dict
+        Dictionary mapping ROI names to DataFrames with summed spectral data
+    """
+    roi_spectra_dirs = [Path(d) for d in roi_spectra_dirs]
+    output_dir = Path(output_dir)
+
+    if not all(d.exists() for d in roi_spectra_dirs):
+        missing = [d for d in roi_spectra_dirs if not d.exists()]
+        raise FileNotFoundError(f"ROI spectra directories not found: {missing}")
+
+    # Find all unique CSV file names across all directories
+    all_csv_files = set()
+    for roi_dir in roi_spectra_dirs:
+        csv_files = list(roi_dir.glob("*.csv"))
+        all_csv_files.update([f.name for f in csv_files])
+
+    if not all_csv_files:
+        raise ValueError("No CSV files found in any of the ROI spectra directories")
+
+    print(f"Summing spectra from {len(roi_spectra_dirs)} folder(s)...")
+    print(f"Found {len(all_csv_files)} unique ROI CSV file(s)")
+
+    results = {}
+
+    # Process each CSV file
+    for csv_name in sorted(all_csv_files):
+        roi_name = csv_name.replace('.csv', '')
+
+        # Collect all dataframes for this ROI
+        dfs_to_sum = []
+        for roi_dir in roi_spectra_dirs:
+            csv_path = roi_dir / csv_name
+            if csv_path.exists():
+                df = pd.read_csv(csv_path)
+                dfs_to_sum.append(df)
+
+        if not dfs_to_sum:
+            warnings.warn(f"No data found for ROI '{roi_name}', skipping")
+            continue
+
+        # Ensure all dataframes have the same number of slices
+        n_slices = len(dfs_to_sum[0])
+        if not all(len(df) == n_slices for df in dfs_to_sum):
+            warnings.warn(
+                f"ROI '{roi_name}' has inconsistent number of slices across folders. "
+                f"Using intersection of slices."
+            )
+            n_slices = min(len(df) for df in dfs_to_sum)
+            dfs_to_sum = [df.iloc[:n_slices] for df in dfs_to_sum]
+
+        # Sum counts for each slice
+        summed_data = []
+        for slice_idx in range(n_slices):
+            stack_num = dfs_to_sum[0].loc[slice_idx, 'stack']
+            total_counts = sum(df.loc[slice_idx, 'counts'] for df in dfs_to_sum)
+
+            # Recalculate error as sqrt of total counts (Poisson statistics)
+            total_err = np.sqrt(total_counts) if total_counts > 0 else 0
+
+            summed_data.append({
+                'stack': stack_num,
+                'counts': total_counts,
+                'err': total_err
+            })
+
+        # Create DataFrame
+        summed_df = pd.DataFrame(summed_data)
+        results[roi_name] = summed_df
+
+        # Save CSV if requested
+        if save_csv:
+            output_dir.mkdir(parents=True, exist_ok=True)
+            csv_path = output_dir / csv_name
+            summed_df.to_csv(csv_path, index=False)
+
+    if save_csv:
+        print(f"Saved {len(results)} summed ROI spectra to {output_dir}")
 
     return results
