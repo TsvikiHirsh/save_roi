@@ -115,7 +115,7 @@ save-roi --tiff image.tiff --mode grid --jobs -1
 ### Python API
 
 ```python
-from spectral_roi import extract_roi_spectra
+from save_roi import extract_roi_spectra
 
 # Extract spectra with ROI file
 results = extract_roi_spectra(
@@ -311,7 +311,7 @@ Extract spectral data for individual pixels.
 ```
 save_roi/
 ├── src/
-│   └── spectral_roi/
+│   └── save_roi/
 │       ├── __init__.py
 │       ├── core.py          # Core extraction and tilt correction functions
 │       └── cli.py           # Command-line interface

@@ -15,6 +15,7 @@ from .core import (
     discover_tiff_files,
     discover_roi_files,
     merge_roi_files,
+    get_tiff_stem,
 )
 
 __all__ = [
@@ -28,4 +29,5 @@ __all__ = [
     "discover_tiff_files",
     "discover_roi_files",
     "merge_roi_files",
+    "get_tiff_stem",
 ]

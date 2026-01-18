@@ -2,6 +2,7 @@
 Core functionality for extracting spectral data from TIFF stacks
 """
 
+import gzip
 import numpy as np
 import pandas as pd
 import tifffile
@@ -16,14 +17,49 @@ from scipy.interpolate import UnivariateSpline
 from tqdm import tqdm
 
 
-def load_tiff_stack(tiff_path: Union[str, Path]) -> np.ndarray:
+def get_tiff_stem(tiff_path: Union[str, Path]) -> str:
     """
-    Load a TIFF stack from file.
+    Get the stem of a TIFF file, removing all TIFF-related suffixes.
+
+    For regular TIFF files (.tif, .tiff), returns the stem.
+    For gzip-compressed TIFF files (.tif.gz, .tiff.gz), removes both suffixes.
 
     Parameters
     ----------
     tiff_path : str or Path
         Path to the TIFF file
+
+    Returns
+    -------
+    str
+        The base name without TIFF/gzip suffixes
+    """
+    tiff_path = Path(tiff_path)
+    name = tiff_path.name
+
+    # Remove .gz suffix first if present
+    if name.lower().endswith('.gz'):
+        name = name[:-3]
+
+    # Remove .tif or .tiff suffix
+    if name.lower().endswith('.tiff'):
+        name = name[:-5]
+    elif name.lower().endswith('.tif'):
+        name = name[:-4]
+
+    return name
+
+
+def load_tiff_stack(tiff_path: Union[str, Path]) -> np.ndarray:
+    """
+    Load a TIFF stack from file.
+
+    Supports both regular TIFF files and gzip-compressed TIFF files (.tiff.gz, .tif.gz).
+
+    Parameters
+    ----------
+    tiff_path : str or Path
+        Path to the TIFF file (can be .tiff, .tif, .tiff.gz, or .tif.gz)
 
     Returns
     -------
@@ -34,7 +70,14 @@ def load_tiff_stack(tiff_path: Union[str, Path]) -> np.ndarray:
     if not tiff_path.exists():
         raise FileNotFoundError(f"TIFF file not found: {tiff_path}")
 
-    data = tifffile.imread(str(tiff_path))
+    # Check if file is gzip-compressed
+    suffixes = ''.join(tiff_path.suffixes).lower()
+    if suffixes.endswith('.gz'):
+        # Load gzip-compressed TIFF directly from file-like object
+        with gzip.open(tiff_path, 'rb') as f:
+            data = tifffile.imread(f)
+    else:
+        data = tifffile.imread(str(tiff_path))
 
     # Ensure 3D array (slices, height, width)
     if data.ndim == 2:
@@ -114,9 +157,10 @@ def discover_tiff_files(directory: Union[str, Path]) -> List[Path]:
     if not directory.is_dir():
         raise ValueError(f"Path is not a directory: {directory}")
 
-    # Search for TIFF files (including compressed)
+    # Search for TIFF files (including gzip-compressed)
     tiff_files = []
-    for pattern in ['*.tif', '*.tiff', '*.TIF', '*.TIFF']:
+    for pattern in ['*.tif', '*.tiff', '*.TIF', '*.TIFF',
+                    '*.tif.gz', '*.tiff.gz', '*.TIF.GZ', '*.TIFF.GZ']:
         tiff_files.extend(directory.glob(pattern))
 
     # Remove duplicates and sort
@@ -525,7 +569,7 @@ def extract_roi_spectra(
 
     # Setup output directory
     if output_dir is None:
-        output_dir = tiff_path.parent / f"{tiff_path.stem}_ROI_Spectra"
+        output_dir = tiff_path.parent / f"{get_tiff_stem(tiff_path)}_ROI_Spectra"
     else:
         output_dir = Path(output_dir)
 
@@ -648,7 +692,7 @@ def extract_pixel_spectra(
 
     # Setup output directory
     if output_dir is None:
-        output_dir = tiff_path.parent / f"{tiff_path.stem}_ROI_Spectra"
+        output_dir = tiff_path.parent / f"{get_tiff_stem(tiff_path)}_ROI_Spectra"
     else:
         output_dir = Path(output_dir)
 
@@ -755,7 +799,7 @@ def extract_grid_spectra(
 
     # Setup output directory
     if output_dir is None:
-        output_dir = tiff_path.parent / f"{tiff_path.stem}_ROI_Spectra"
+        output_dir = tiff_path.parent / f"{get_tiff_stem(tiff_path)}_ROI_Spectra"
     else:
         output_dir = Path(output_dir)
 
