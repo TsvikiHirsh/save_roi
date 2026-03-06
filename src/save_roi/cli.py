@@ -21,50 +21,91 @@ import tifffile
 from tqdm import tqdm
 
 
-def main():
-    """Main CLI entry point"""
-    parser = argparse.ArgumentParser(
-        description="Extract spectral data from TIFF stacks using ImageJ ROIs or automated analysis",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
+_BASIC_EPILOG = """\
+Examples:
+  save-roi data                                    # quick workflow
+  save-roi --tiff image.tiff --roi rois.zip        # ROI spectra
+  save-roi --tiff image.tiff                       # full-image spectrum
+  save-roi --tiff image.tiff --mode grid           # grid analysis (4x4 blocks)
+
+For advanced options (open-beam smoothing, filename prefix, …):
+  save-roi --help --advanced
+"""
+
+_ADVANCED_EPILOG = """\
 Examples:
   # Quick workflow: discover TIFFs in data/final/, ROIs in PWD, output to data/
   save-roi data
 
   # Extract spectra using ImageJ ROI file
-  save-roi --tiff image.tiff --roi roi_file.zip
+  save-roi --tiff image.tiff --roi rois.zip
 
-  # Extract spectra with tilt correction
-  save-roi --tiff image.tiff --roi roi_file.zip --tilt symmetry_line
-
-  # Extract spectrum for entire image (no ROI)
+  # Full image (no ROI)
   save-roi --tiff image.tiff
 
-  # Extract spectra for 4x4 pixel grid
+  # Grid analysis (4×4 blocks)
   save-roi --tiff image.tiff --mode grid --grid-size 4
 
-  # Extract spectra for every pixel
-  save-roi --tiff image.tiff --mode pixel
+  # Pixel-by-pixel, every 4th pixel, all CPU cores
+  save-roi --tiff image.tiff --mode pixel --stride 4 --jobs -1
 
-  # Extract spectra for every 4th pixel
-  save-roi --tiff image.tiff --mode pixel --stride 4
+  # Custom output directory with a suffix subfolder
+  save-roi --tiff image.tiff --roi rois.zip --output ./results --suffix run1
 
-  # Use all available cores for parallel processing
-  save-roi --tiff image.tiff --mode grid --grid-size 4 --jobs -1
+  # Tilt correction
+  save-roi --tiff image.tiff --roi rois.zip --tilt symmetry_line
 
-  # Open-beam smoothing: use full-image TOF shape for low-statistics uniform samples
-  save-roi --tiff openbeam.tiff --mode grid --grid-size 4 --smooth
+  # Open-beam smoothing (improved statistics for uniform samples)
   save-roi --tiff openbeam.tiff --roi rois.zip --smooth
+  save-roi --tiff openbeam.tiff --mode grid --grid-size 4 --smooth
 
-  # Specify custom output directory
-  save-roi --tiff image.tiff --roi roi.zip --output ./results
+  # Short filenames with a custom prefix
+  save-roi --tiff openbeam.tiff --roi rois.zip --smooth --prefix ob_run1
+  save-roi --tiff openbeam.tiff --mode grid --smooth --prefix ob
+"""
 
-  # Apply tilt correction and extract grid spectra
-  save-roi --tiff image.tiff --roi roi.zip --tilt symmetry --mode grid
-        """
+_SMOOTH_HELP = (
+    'Open-beam smoothing: average the TOF spectrum over the full image '
+    'and use its shape (scaled to the local spatial intensity) for each '
+    'ROI / pixel / grid cell.  Improves statistics for spatially uniform '
+    'samples (e.g. open beam).  Each region\'s total counts are preserved '
+    'so the spatial background is maintained.  Uncertainty is propagated '
+    'rigorously from Poisson statistics, accounting for all cross-correlations.'
+)
+
+_PREFIX_HELP = (
+    'Prefix string prepended to every output CSV filename.  '
+    'ROI/full mode: {prefix}_{roi_name}.csv.  '
+    'Pixel/grid mode: {prefix}_x{x}_y{y}.csv '
+    '(replaces the long grid_4x4_ / pixel_ mode tag).  '
+    'Example: --prefix ob_run1'
+)
+
+
+def main():
+    """Main CLI entry point"""
+    show_advanced = '--advanced' in sys.argv
+
+    parser = argparse.ArgumentParser(
+        description="Extract spectral data from TIFF stacks using ImageJ ROIs or automated analysis",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=_ADVANCED_EPILOG if show_advanced else _BASIC_EPILOG,
+        add_help=False,
     )
 
-    # Positional argument for quick workflow
+    # ── Help flags ────────────────────────────────────────────────────────────
+    parser.add_argument(
+        '-h', '--help',
+        action='store_true', default=False,
+        help='Show this help message and exit'
+    )
+    parser.add_argument(
+        '--advanced',
+        action='store_true', default=False,
+        help='Show advanced options in help (use with --help)'
+    )
+
+    # ── Main arguments ────────────────────────────────────────────────────────
     parser.add_argument(
         'data_dir',
         nargs='?',
@@ -72,34 +113,28 @@ Examples:
         help='Data directory for quick workflow. Searches for TIFFs in DATA_DIR/final/, ROIs in PWD, outputs to DATA_DIR/'
     )
 
-    # Input arguments
     parser.add_argument(
         '-t', '--tiff',
-        type=str,
-        default=None,
-        help='Path to TIFF stack file or directory. If directory, discovers all TIFF files. Default: current directory'
+        type=str, default=None,
+        help='Path to TIFF stack file or directory.'
     )
 
-    # Optional arguments
     parser.add_argument(
         '-r', '--roi',
-        type=str,
-        default=None,
-        help='Path to ImageJ ROI file (.roi or .zip), or directory to discover ROI files. If not provided, auto-discovers ROI files in the same directory as TIFF files. Multiple ROI files will be merged automatically.'
+        type=str, default=None,
+        help='Path to ImageJ ROI file (.roi or .zip), or directory to discover ROI files. Multiple files are merged automatically.'
     )
 
     parser.add_argument(
         '-o', '--output',
-        type=str,
-        default=None,
-        help='Output directory for CSV files. Default: creates ROI_Spectra subfolder next to TIFF file.'
+        type=str, default=None,
+        help='Output directory for CSV files. Default: {tiff}_ROI_Spectra/ next to the TIFF.'
     )
 
     parser.add_argument(
         '-s', '--suffix',
-        type=str,
-        default=None,
-        help='Optional subfolder name within the output directory. Useful for organizing different analyses (e.g., "corrected", "run1", "background").'
+        type=str, default=None,
+        help='Subfolder appended to the output directory (e.g. "run1", "corrected").'
     )
 
     parser.add_argument(
@@ -107,48 +142,37 @@ Examples:
         type=str,
         choices=['roi', 'full', 'pixel', 'grid'],
         default='roi',
-        help=(
-            'Analysis mode: '
-            'roi (use ImageJ ROI file), '
-            'full (entire image), '
-            'pixel (pixel-by-pixel or strided), '
-            'grid (grid-based blocks). '
-            'Default: roi if --roi is provided, otherwise full.'
-        )
+        help='Analysis mode: roi | full | pixel | grid.  Default: roi (or full when no ROI is found).'
     )
 
     parser.add_argument(
         '--grid-size',
-        type=int,
-        default=4,
-        help='Grid block size for grid mode (e.g., 4 for 4x4 blocks). Default: 4'
+        type=int, default=4,
+        help='Block size for grid mode (default: 4 → 4×4 pixels).'
     )
 
     parser.add_argument(
         '--stride',
-        type=int,
-        default=1,
-        help='Stride for pixel mode (e.g., 4 to sample every 4th pixel). Default: 1'
+        type=int, default=1,
+        help='Sampling stride for pixel mode (default: 1 → every pixel).'
     )
 
     parser.add_argument(
         '-j', '--jobs',
-        type=int,
-        default=10,
-        help='Number of parallel jobs for grid/pixel modes. Use -1 for all available cores. Default: 10'
+        type=int, default=10,
+        help='Parallel jobs for grid/pixel modes. Use -1 for all cores. Default: 10'
     )
 
     parser.add_argument(
         '--no-save',
         action='store_true',
-        help='Do not save CSV files (only useful for testing)'
+        help='Do not write CSV files (useful for testing).'
     )
 
     parser.add_argument(
         '--tilt',
-        type=str,
-        default=None,
-        help='Name of ROI to use for tilt correction. The ROI should define a symmetry line that will be straightened to vertical and centered.'
+        type=str, default=None,
+        help='ROI name used for tilt correction. The ROI defines a symmetry line that is straightened to vertical and centred.'
     )
 
     parser.add_argument(
@@ -158,34 +182,19 @@ Examples:
     )
 
     # ── Advanced options ──────────────────────────────────────────────────────
-    advanced = parser.add_argument_group('advanced options')
+    # Visible only with --help --advanced; still accepted on the command line.
+    if show_advanced:
+        adv = parser.add_argument_group('advanced options')
+        adv.add_argument('--smooth', action='store_true', help=_SMOOTH_HELP)
+        adv.add_argument('--prefix', type=str, default=None, help=_PREFIX_HELP)
+    else:
+        parser.add_argument('--smooth', action='store_true', help=argparse.SUPPRESS)
+        parser.add_argument('--prefix', type=str, default=None, help=argparse.SUPPRESS)
 
-    advanced.add_argument(
-        '--smooth',
-        action='store_true',
-        help=(
-            'Open-beam smoothing: average the TOF spectrum over the full image '
-            'and use its shape (scaled to the local spatial intensity) for each '
-            'ROI / pixel / grid cell.  Improves statistics for spatially uniform '
-            'samples such as open-beam measurements.  Each region\'s total counts '
-            'are preserved so the spatial background is maintained.  Uncertainty '
-            'is propagated rigorously from Poisson statistics including all '
-            'cross-correlations between the region counts, the full-image '
-            'spectrum, and the grand total.'
-        )
-    )
-
-    advanced.add_argument(
-        '--prefix',
-        type=str,
-        default=None,
-        help=(
-            'Prefix string prepended to every output CSV filename for easy '
-            'identification.  For ROI/full mode: {prefix}_{roi_name}.csv.  '
-            'For pixel/grid mode: {prefix}_x{x}_y{y}.csv (the long mode tag '
-            'is replaced by the prefix).  Example: --prefix openbeam_run1'
-        )
-    )
+    # ── Handle help early ─────────────────────────────────────────────────────
+    if '-h' in sys.argv or '--help' in sys.argv:
+        parser.print_help()
+        sys.exit(0)
 
     args = parser.parse_args()
 
