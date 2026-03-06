@@ -15,6 +15,7 @@ from .core import (
     discover_tiff_files,
     discover_roi_files,
     merge_roi_files,
+    calculate_smooth_spectrum,
 )
 import tifffile
 from tqdm import tqdm
@@ -50,6 +51,10 @@ Examples:
 
   # Use all available cores for parallel processing
   save-roi --tiff image.tiff --mode grid --grid-size 4 --jobs -1
+
+  # Open-beam smoothing: use full-image TOF shape for low-statistics uniform samples
+  save-roi --tiff openbeam.tiff --mode grid --grid-size 4 --smooth
+  save-roi --tiff openbeam.tiff --roi rois.zip --smooth
 
   # Specify custom output directory
   save-roi --tiff image.tiff --roi roi.zip --output ./results
@@ -150,6 +155,36 @@ Examples:
         '--version',
         action='version',
         version='%(prog)s 0.1.0'
+    )
+
+    # ── Advanced options ──────────────────────────────────────────────────────
+    advanced = parser.add_argument_group('advanced options')
+
+    advanced.add_argument(
+        '--smooth',
+        action='store_true',
+        help=(
+            'Open-beam smoothing: average the TOF spectrum over the full image '
+            'and use its shape (scaled to the local spatial intensity) for each '
+            'ROI / pixel / grid cell.  Improves statistics for spatially uniform '
+            'samples such as open-beam measurements.  Each region\'s total counts '
+            'are preserved so the spatial background is maintained.  Uncertainty '
+            'is propagated rigorously from Poisson statistics including all '
+            'cross-correlations between the region counts, the full-image '
+            'spectrum, and the grand total.'
+        )
+    )
+
+    advanced.add_argument(
+        '--prefix',
+        type=str,
+        default=None,
+        help=(
+            'Prefix string prepended to every output CSV filename for easy '
+            'identification.  For ROI/full mode: {prefix}_{roi_name}.csv.  '
+            'For pixel/grid mode: {prefix}_x{x}_y{y}.csv (the long mode tag '
+            'is replaced by the prefix).  Example: --prefix openbeam_run1'
+        )
     )
 
     args = parser.parse_args()
@@ -324,7 +359,9 @@ Examples:
                     output_dir=output_dir,
                     save_csv=save_csv,
                     tilt_roi_name=args.tilt,
-                    temp_roi_path=temp_roi_path
+                    temp_roi_path=temp_roi_path,
+                    smooth=args.smooth,
+                    prefix=args.prefix
                 )
                 return len(results), 'ROI(s)'
 
@@ -344,7 +381,9 @@ Examples:
                     stride=args.stride,
                     n_jobs=args.jobs,
                     tilt_roi_name=args.tilt,
-                    roi_path=temp_roi_path if args.tilt else None
+                    roi_path=temp_roi_path if args.tilt else None,
+                    smooth=args.smooth,
+                    prefix=args.prefix
                 )
                 return len(results), 'pixels'
 
@@ -356,7 +395,9 @@ Examples:
                     save_csv=save_csv,
                     n_jobs=args.jobs,
                     tilt_roi_name=args.tilt,
-                    roi_path=temp_roi_path if args.tilt else None
+                    roi_path=temp_roi_path if args.tilt else None,
+                    smooth=args.smooth,
+                    prefix=args.prefix
                 )
                 return len(results), 'grid cells'
 
@@ -366,9 +407,9 @@ Examples:
                 import shutil
                 shutil.rmtree(temp_roi_path.parent)
 
-    def extract_roi_spectra_with_merged_rois(tiff_path, merged_rois, output_dir, save_csv, tilt_roi_name, temp_roi_path):
+    def extract_roi_spectra_with_merged_rois(tiff_path, merged_rois, output_dir, save_csv, tilt_roi_name, temp_roi_path, smooth=False, prefix=None):
         """Extract ROI spectra using pre-merged ROI list"""
-        from .core import load_tiff_stack, apply_tilt_correction, get_roi_mask, calculate_spectrum
+        from .core import load_tiff_stack, apply_tilt_correction, get_roi_mask, calculate_spectrum, calculate_smooth_spectrum
         import warnings
 
         stack = load_tiff_stack(tiff_path)
@@ -388,6 +429,9 @@ Examples:
         if save_csv:
             output_dir.mkdir(parents=True, exist_ok=True)
 
+        # Pre-compute full-image spectrum once if smooth mode is active
+        full_image_spectrum = stack.sum(axis=(1, 2)).astype(float) if smooth else None
+
         results = {}
 
         # Process each ROI from merged list
@@ -403,11 +447,15 @@ Examples:
                 continue
 
             # Calculate spectrum
-            df = calculate_spectrum(stack, mask)
+            if smooth:
+                df = calculate_smooth_spectrum(stack, mask, full_image_spectrum)
+            else:
+                df = calculate_spectrum(stack, mask)
             results[roi_name] = df
 
             if save_csv:
-                csv_path = output_dir / f"{roi_name}.csv"
+                stem = f"{prefix}_{roi_name}" if prefix else roi_name
+                csv_path = output_dir / f"{stem}.csv"
                 df.to_csv(csv_path, index=False)
 
         return results

@@ -319,7 +319,9 @@ def _process_single_mask(args):
     Parameters
     ----------
     args : tuple
-        (mask_name, mask, stack_shape, shared_mem_name, dtype) tuple
+        (mask_name, mask, stack_shape, shared_mem_name, dtype) tuple, or
+        (mask_name, mask, stack_shape, shared_mem_name, dtype,
+         full_image_spectrum) tuple when smooth mode is requested.
 
     Returns
     -------
@@ -328,13 +330,20 @@ def _process_single_mask(args):
     """
     from multiprocessing import shared_memory
 
-    mask_name, mask, stack_shape, shared_mem_name, dtype = args
+    if len(args) == 6:
+        mask_name, mask, stack_shape, shared_mem_name, dtype, full_image_spectrum = args
+    else:
+        mask_name, mask, stack_shape, shared_mem_name, dtype = args
+        full_image_spectrum = None
 
     # Access shared memory
     shm = shared_memory.SharedMemory(name=shared_mem_name)
     stack = np.ndarray(stack_shape, dtype=dtype, buffer=shm.buf)
 
-    df = calculate_spectrum(stack, mask)
+    if full_image_spectrum is not None:
+        df = calculate_smooth_spectrum(stack, mask, full_image_spectrum)
+    else:
+        df = calculate_spectrum(stack, mask)
 
     # Don't close/unlink here - main process will handle cleanup
     shm.close()
@@ -383,6 +392,115 @@ def calculate_spectrum(stack: np.ndarray, mask: np.ndarray) -> pd.DataFrame:
         })
 
     return pd.DataFrame(results)
+
+
+def calculate_smooth_spectrum(
+    stack: np.ndarray,
+    mask: np.ndarray,
+    full_image_spectrum: np.ndarray
+) -> pd.DataFrame:
+    """
+    Calculate a smoothed spectrum using the full-image TOF shape with rigorous
+    uncertainty propagation.
+
+    Designed for open-beam / flat-field measurements where the sample is
+    spatially uniform but per-pixel / per-ROI statistics are low.  The TOF
+    spectral shape is estimated from the full image (high statistics) and then
+    scaled to match the local spatial intensity of each region so that the
+    overall spatial background is preserved.
+
+    Model
+    -----
+    For region r and TOF bin t::
+
+        I_smooth(r, t) = N(r) * S(t) / S_total
+
+    where
+
+    * ``N(r)  = Σ_t I_raw(r,t)``  – total counts in the region (all TOF bins)
+    * ``S(t)``                     – full-image counts at TOF bin t
+    * ``S_total = Σ_t S(t)``       – grand total counts
+
+    Uncertainty
+    -----------
+    All pixel-TOF counts are independent Poisson variables.  Error propagation
+    via ``ln f = ln N + ln S - ln T`` with the cross-correlations between the
+    three quantities (they share individual pixel counts) gives::
+
+        σ²(I_smooth) = I_smooth² · [1/N(r) + 1/S(t) − 3/S_total
+                                     + 2·I_raw(r,t) / (N(r)·S(t))]
+
+    The correlation terms arise because:
+
+    * ``Cov(N(r), S(t))    = I_raw(r,t)``  (mask pixels at TOF t shared)
+    * ``Cov(N(r), S_total) = N(r)``         (mask pixels at all TOFs shared)
+    * ``Cov(S(t), S_total) = S(t)``         (all pixels at TOF t shared)
+
+    For a small region relative to the full image the formula simplifies to
+    the familiar ``σ² ≈ I_smooth² · (1/N + 1/S)``.
+
+    Parameters
+    ----------
+    stack : np.ndarray
+        3D array (slices, height, width).
+    mask : np.ndarray
+        2D boolean mask (height, width).
+    full_image_spectrum : np.ndarray
+        1D array of shape (slices,) containing S(t) – the summed counts over
+        *all* pixels at each TOF bin.  Compute once as
+        ``stack.sum(axis=(1, 2))`` before calling this function.
+
+    Returns
+    -------
+    pd.DataFrame
+        DataFrame with columns: stack, counts, err.
+        ``counts`` is the smoothed estimate; ``err`` is the propagated
+        1-sigma uncertainty.
+    """
+    if stack.ndim == 2:
+        stack = stack[np.newaxis, :, :]
+
+    n_slices = stack.shape[0]
+    S = full_image_spectrum.astype(float)   # S(t), shape (n_slices,)
+    S_total = float(S.sum())                # grand total
+
+    zeros = pd.DataFrame({
+        'stack': np.arange(1, n_slices + 1, dtype=int),
+        'counts': np.zeros(n_slices),
+        'err': np.zeros(n_slices),
+    })
+
+    if S_total == 0 or not mask.any():
+        return zeros
+
+    # I_raw(r, t) – raw counts in the masked region per TOF bin, shape (n_slices,)
+    I_raw = stack[:, mask].sum(axis=1).astype(float)
+    N_r = float(I_raw.sum())   # total counts in region across all TOF bins
+
+    if N_r == 0:
+        return zeros
+
+    # Smoothed spectrum
+    I_smooth = N_r * S / S_total   # shape (n_slices,)
+
+    # Variance via error propagation with Poisson correlations:
+    #   σ²/f² = 1/N_r + 1/S(t) − 3/S_total + 2·I_raw(t)/(N_r·S(t))
+    # Handle S(t) = 0 bins: those bins get I_smooth = 0 and err = 0.
+    nonzero = S > 0
+    var = np.zeros(n_slices)
+    var[nonzero] = I_smooth[nonzero] ** 2 * (
+        1.0 / N_r
+        + 1.0 / S[nonzero]
+        - 3.0 / S_total
+        + 2.0 * I_raw[nonzero] / (N_r * S[nonzero])
+    )
+    var = np.maximum(var, 0.0)   # guard against floating-point negatives
+
+    return pd.DataFrame({
+        'stack': np.arange(1, n_slices + 1, dtype=int),
+        'counts': I_smooth,
+        'err': np.sqrt(var),
+    })
 
 
 def apply_tilt_correction(
@@ -531,7 +649,9 @@ def extract_roi_spectra(
     roi_path: Optional[Union[str, Path]] = None,
     output_dir: Optional[Union[str, Path]] = None,
     save_csv: bool = True,
-    tilt_roi_name: Optional[str] = None
+    tilt_roi_name: Optional[str] = None,
+    smooth: bool = False,
+    prefix: Optional[str] = None
 ) -> dict:
     """
     Extract spectral data for ROIs from a TIFF stack.
@@ -550,6 +670,15 @@ def extract_roi_spectra(
     tilt_roi_name : str, optional
         Name of ROI to use for tilt correction. If provided, applies tilt
         correction before extracting spectra.
+    smooth : bool, default=False
+        If True, use the full-image averaged TOF spectrum scaled to the local
+        spatial intensity.  Improves statistics for spatially uniform samples
+        (e.g. open beam).  Uncertainty is computed via rigorous error
+        propagation accounting for Poisson correlations; see
+        :func:`calculate_smooth_spectrum`.
+    prefix : str, optional
+        If provided, prepend this string to all output CSV filenames:
+        ``{prefix}_{roi_name}.csv`` instead of ``{roi_name}.csv``.
 
     Returns
     -------
@@ -576,16 +705,23 @@ def extract_roi_spectra(
     if save_csv:
         output_dir.mkdir(parents=True, exist_ok=True)
 
+    # Pre-compute full-image spectrum once if smooth mode is active
+    full_image_spectrum = stack.sum(axis=(1, 2)).astype(float) if smooth else None
+
     results = {}
 
     if roi_path is None:
         # Analyze full image
         full_mask = np.ones(stack.shape[1:], dtype=bool)
-        df = calculate_spectrum(stack, full_mask)
+        if smooth:
+            df = calculate_smooth_spectrum(stack, full_mask, full_image_spectrum)
+        else:
+            df = calculate_spectrum(stack, full_mask)
         results['full_image'] = df
 
         if save_csv:
-            csv_path = output_dir / 'full_image.csv'
+            stem = f"{prefix}_full_image" if prefix else "full_image"
+            csv_path = output_dir / f"{stem}.csv"
             df.to_csv(csv_path, index=False)
             print(f"Saved: {csv_path}")
     else:
@@ -605,11 +741,15 @@ def extract_roi_spectra(
                 continue
 
             # Calculate spectrum
-            df = calculate_spectrum(stack, mask)
+            if smooth:
+                df = calculate_smooth_spectrum(stack, mask, full_image_spectrum)
+            else:
+                df = calculate_spectrum(stack, mask)
             results[roi_name] = df
 
             if save_csv:
-                csv_path = output_dir / f"{roi_name}.csv"
+                stem = f"{prefix}_{roi_name}" if prefix else roi_name
+                csv_path = output_dir / f"{stem}.csv"
                 df.to_csv(csv_path, index=False)
                 print(f"Saved: {csv_path}")
 
@@ -649,7 +789,9 @@ def extract_pixel_spectra(
     stride: int = 1,
     n_jobs: int = 10,
     tilt_roi_name: Optional[str] = None,
-    roi_path: Optional[Union[str, Path]] = None
+    roi_path: Optional[Union[str, Path]] = None,
+    smooth: bool = False,
+    prefix: Optional[str] = None
 ) -> dict:
     """
     Extract spectral data for individual pixels or pixel groups on a grid.
@@ -671,6 +813,12 @@ def extract_pixel_spectra(
         Name of ROI to use for tilt correction.
     roi_path : str or Path, optional
         Path to ROI file (required if tilt_roi_name is provided).
+    smooth : bool, default=False
+        If True, use the full-image averaged TOF spectrum scaled to the local
+        spatial intensity.  See :func:`calculate_smooth_spectrum`.
+    prefix : str, optional
+        If provided, use ``{prefix}_x{x}_y{y}.csv`` instead of
+        ``pixel_x{x}_y{y}.csv`` for output filenames.
 
     Returns
     -------
@@ -710,6 +858,9 @@ def extract_pixel_spectra(
     print(f"Extracting pixel spectra with stride={stride} using {n_jobs} cores...")
     print(f"Stack size: {stack.shape}, Memory: {stack.nbytes / 1024**3:.2f} GB")
 
+    # Pre-compute full-image spectrum once if smooth mode is active
+    full_image_spectrum = stack.sum(axis=(1, 2)).astype(float) if smooth else None
+
     # Create shared memory for the stack
     shm = shared_memory.SharedMemory(create=True, size=stack.nbytes)
     shared_stack = np.ndarray(stack.shape, dtype=stack.dtype, buffer=shm.buf)
@@ -724,7 +875,10 @@ def extract_pixel_spectra(
                 mask = np.zeros((height, width), dtype=bool)
                 mask[y, x] = True
                 pixel_name = f"pixel_x{x}_y{y}"
-                tasks.append((pixel_name, mask, stack.shape, shm.name, stack.dtype))
+                if smooth:
+                    tasks.append((pixel_name, mask, stack.shape, shm.name, stack.dtype, full_image_spectrum))
+                else:
+                    tasks.append((pixel_name, mask, stack.shape, shm.name, stack.dtype))
 
         # Process in parallel
         with Pool(processes=n_jobs) as pool:
@@ -742,7 +896,12 @@ def extract_pixel_spectra(
     if save_csv:
         print(f"Saving {len(results)} CSV files...")
         for pixel_name, df in tqdm(results.items(), desc="Saving CSVs", disable=len(results) < 100):
-            csv_path = output_dir / f"{pixel_name}.csv"
+            # pixel_name is "pixel_x{x}_y{y}"; with prefix strip the "pixel_" tag
+            if prefix:
+                coord = pixel_name[len("pixel_"):]   # "x{x}_y{y}"
+                csv_path = output_dir / f"{prefix}_{coord}.csv"
+            else:
+                csv_path = output_dir / f"{pixel_name}.csv"
             df.to_csv(csv_path, index=False)
 
     print(f"Saved {len(results)} pixel spectra to {output_dir}")
@@ -757,7 +916,9 @@ def extract_grid_spectra(
     save_csv: bool = True,
     n_jobs: int = 10,
     tilt_roi_name: Optional[str] = None,
-    roi_path: Optional[Union[str, Path]] = None
+    roi_path: Optional[Union[str, Path]] = None,
+    smooth: bool = False,
+    prefix: Optional[str] = None
 ) -> dict:
     """
     Extract spectral data for grid-based pixel groups (e.g., 4x4 blocks).
@@ -778,6 +939,12 @@ def extract_grid_spectra(
         Name of ROI to use for tilt correction.
     roi_path : str or Path, optional
         Path to ROI file (required if tilt_roi_name is provided).
+    smooth : bool, default=False
+        If True, use the full-image averaged TOF spectrum scaled to the local
+        spatial intensity.  See :func:`calculate_smooth_spectrum`.
+    prefix : str, optional
+        If provided, use ``{prefix}_x{x}_y{y}.csv`` instead of
+        ``grid_{grid_size}x{grid_size}_x{x}_y{y}.csv`` for output filenames.
 
     Returns
     -------
@@ -817,6 +984,9 @@ def extract_grid_spectra(
     print(f"Extracting grid spectra with {grid_size}x{grid_size} blocks using {n_jobs} cores...")
     print(f"Stack size: {stack.shape}, Memory: {stack.nbytes / 1024**3:.2f} GB")
 
+    # Pre-compute full-image spectrum once if smooth mode is active
+    full_image_spectrum = stack.sum(axis=(1, 2)).astype(float) if smooth else None
+
     # Create shared memory for the stack
     shm = shared_memory.SharedMemory(create=True, size=stack.nbytes)
     shared_stack = np.ndarray(stack.shape, dtype=stack.dtype, buffer=shm.buf)
@@ -834,7 +1004,10 @@ def extract_grid_spectra(
                 mask[y:y_end, x:x_end] = True
 
                 grid_name = f"grid_{grid_size}x{grid_size}_x{x}_y{y}"
-                tasks.append((grid_name, mask, stack.shape, shm.name, stack.dtype))
+                if smooth:
+                    tasks.append((grid_name, mask, stack.shape, shm.name, stack.dtype, full_image_spectrum))
+                else:
+                    tasks.append((grid_name, mask, stack.shape, shm.name, stack.dtype))
 
         # Process in parallel
         with Pool(processes=n_jobs) as pool:
@@ -851,8 +1024,14 @@ def extract_grid_spectra(
     # Save CSVs if requested
     if save_csv:
         print(f"Saving {len(results)} CSV files...")
+        mode_tag = f"grid_{grid_size}x{grid_size}_"
         for grid_name, df in tqdm(results.items(), desc="Saving CSVs", disable=len(results) < 100):
-            csv_path = output_dir / f"{grid_name}.csv"
+            # grid_name is "grid_{gs}x{gs}_x{x}_y{y}"; with prefix strip the mode tag
+            if prefix:
+                coord = grid_name[len(mode_tag):]   # "x{x}_y{y}"
+                csv_path = output_dir / f"{prefix}_{coord}.csv"
+            else:
+                csv_path = output_dir / f"{grid_name}.csv"
             df.to_csv(csv_path, index=False)
 
     print(f"Saved {len(results)} grid spectra to {output_dir}")

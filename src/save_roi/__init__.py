@@ -16,6 +16,7 @@ from .core import (
     discover_roi_files,
     merge_roi_files,
     get_tiff_stem,
+    calculate_smooth_spectrum,
 )
 
 __all__ = [
@@ -30,4 +31,5 @@ __all__ = [
     "discover_roi_files",
     "merge_roi_files",
     "get_tiff_stem",
+    "calculate_smooth_spectrum",
 ]
